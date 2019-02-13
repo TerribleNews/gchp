@@ -243,7 +243,7 @@ MODULE Chem_GridCompMod
   ! those declared in the .h file included below are not used. (ewl, 11/3/2017)
 # include "GEOSCHEMCHEM_DeclarePointer___.h"
 #else
-# include "GEOSCHEMCHEM_DeclarePointer___.h"
+# include "GIGCchem_DeclarePointer___.h"
 #endif
 
 #if !defined( MODEL_GEOS )
@@ -407,11 +407,13 @@ CONTAINS
     USE CHARPAK_MOD,          ONLY : STRSPLIT, CSTRIP
     USE inquireMod,           ONLY : findFreeLUN
     USE FILE_MOD,             ONLY : IOERROR
+#if defined( MODEL_GEOS )
     USE SPECIES_DATABASE_MOD, ONLY : Spc_Info
     USE CMN_FJX_MOD
     USE GCKPP_Monitor
     USE GCKPP_Parameters
     USE Precision_Mod
+#endif
 !
 ! !INPUT/OUTPUT PARAMETERS:
 !
@@ -435,6 +437,15 @@ CONTAINS
 !  06 Dec 2009 - A. da Silva - Initial version
 !  07 Apr 2010 - R. Yantosca - Updated comments, cosmetic changes 
 !  22 Sep 2014 - C. Keller   - Added two run phases
+!  07 Aug 2017 - E. Lundgren - Add Olson and CHRL imports
+!  14 Jul 2017 - E. Lundgren - Read simulation type to determine whether to
+!                              add KPP species to the internal state
+!  01 Sep 2017 - E. Lundgren - Call new subroutine HistoryExports_SetServices
+!                              for GEOS-Chem state object diagnostics
+!  12 Sep 2017 - E. Lundgren - Use species prefix "SPFX" from gigc_types_mod.F90
+!  06 Nov 2017 - E. Lundgren - Abstract provider services to new module
+!                              gigc_providerservices_mod.F90
+!  08 Mar 2018 - E. Lundgren - "SPFX" now retrieved from gigc_historyexports_mod
 !EOP
 !------------------------------------------------------------------------------
 !BOC
@@ -457,8 +468,14 @@ CONTAINS
     CHARACTER(LEN=60)             :: rstFile, landTypeStr, importName
     INTEGER                       :: restartAttr
     CHARACTER(LEN=ESMF_MAXSTR)    :: HistoryConfigFile ! HISTORY config file
-    CHARACTER(LEN=ESMF_MAXSTR)    :: ProviderName  ! Provider name
 
+#if !defined( MODEL_GEOS )
+    TYPE(MAPL_MetaComp),  POINTER :: STATE => NULL()
+    INTEGER                       :: T
+#endif
+
+#if defined( MODEL_GEOS )
+    CHARACTER(LEN=ESMF_MAXSTR)    :: ProviderName  ! Provider name
     CHARACTER(LEN=ESMF_MAXSTR)    :: LongName      ! Long name for diagnostics
     CHARACTER(LEN=ESMF_MAXSTR)    :: ShortName
     CHARACTER(LEN=3)              :: III
@@ -473,6 +490,7 @@ CONTAINS
     CHARACTER(LEN=31)             :: iName
     CHARACTER(LEN=80)             :: FullName, Formula 
     LOGICAL                       :: FriendDyn, FriendTurb
+#endif
 
     __Iam__('SetServices')
 
@@ -503,7 +521,19 @@ CONTAINS
     !=======================================================================
     myState%myCF = ESMF_ConfigCreate(__RC__)
 
+#if defined( MODEL_GEOS )
     call ESMF_ConfigLoadFile( myState%myCF, 'GEOSCHEMchem_GridComp.rc', __RC__)
+#else
+    call ESMF_ConfigLoadFile( myState%myCF, 'GCHP.rc', __RC__)
+#endif
+
+#if !defined( MODEL_GEOS )
+    ! Get generic state object
+    CALL MAPL_GetObjectFromGC( GC, STATE, __RC__ )
+    call MAPL_GetResource( STATE, IsCTM, label='GEOSChem_CTM:', & 
+                           default=1, rc=status )
+    VERIFY_(STATUS)
+#endif
 
     !=======================================================================
     !                 %%% ESMF Functional Services %%%
@@ -512,7 +542,9 @@ CONTAINS
     ! Set the Initialize, Run, Finalize entry points
     CALL MAPL_GridCompSetEntryPoint( GC, ESMF_METHOD_INITIALIZE,  &
                                      Initialize_, __RC__ )
+#if defined( MODEL_GEOS )
     CALL MAPL_GridCompSetEntryPoint( GC, ESMF_METHOD_RUN, Run1, __RC__ )
+#endif
     CALL MAPL_GridCompSetEntryPoint( GC, ESMF_METHOD_RUN, Run2, __RC__ )
     CALL MAPL_GridCompSetEntryPoint( GC, ESMF_METHOD_FINALIZE,  &
                                      Finalize_, __RC__ )
@@ -529,12 +561,59 @@ CONTAINS
 !
 ! !IMPORT STATE:
 !
+#if defined( MODEL_GEOS )
 #   include "GEOSCHEMCHEM_ImportSpec___.h"
+#else
+#   include "GIGCchem_ImportSpec___.h"
+#endif
+
+#if !defined( MODEL_GEOS )
+    call MAPL_AddImportSpec(GC, &
+       SHORT_NAME         = 'PLE',  &
+       LONG_NAME          = 'pressure_level_edges',  &
+       UNITS              = 'Pa', &
+       PRECISION          = ESMF_KIND_R8, &
+       DIMS               = MAPL_DimsHorzVert,    &
+       VLOCATION          = MAPL_VLocationEdge,    &
+                                                      RC=STATUS  )
+    VERIFY_(STATUS)
+
+    call MAPL_AddImportSpec(GC, &
+       SHORT_NAME         = 'DryPLE',  &
+       LONG_NAME          = 'dry_pressure_level_edges',  &
+       UNITS              = 'Pa', &
+       PRECISION          = ESMF_KIND_R8, &
+       DIMS               = MAPL_DimsHorzVert,    &
+       VLOCATION          = MAPL_VLocationEdge,    &
+                                                      RC=STATUS  )
+    VERIFY_(STATUS)
+#endif
 
 !
 ! !INTERNAL STATE:
 !
+#if defined( MODEL_GEOS )
 #   include "GEOSCHEMCHEM_InternalSpec___.h"
+#else
+#   include "GIGCchem_InternalSpec___.h"
+#endif
+
+#if !defined( MODEL_GEOS )
+    ! Determine if using a restart file for the internal state. Setting
+    ! the GIGCchem_INTERNAL_RESTART_FILE to +none in GCHP.rc indicates
+    ! skipping the restart file. Species concentrations will be retrieved
+    ! from the species database, overwriting MAPL-assigned default values.
+    CALL ESMF_ConfigGetAttribute( myState%myCF, rstFile, &
+                                  Label = "GIGCchem_INTERNAL_RESTART_FILE:",&
+                                  __RC__ ) 
+    IF ( TRIM(rstFile) == '+none' ) THEN
+       restartAttr = MAPL_RestartSkipInitial ! file does not exist;
+                                             ! use background values
+    ELSE
+       restartAttr = MAPL_RestartOptional    ! try to read species from file;
+                                             ! use background vals if not found
+    ENDIF
+#endif
 
 !-- Read in species from input.geos and set FRIENDLYTO
     ! ewl TODO: This works but is not ideal. Look into how to remove it.
@@ -558,6 +637,7 @@ CONTAINS
        CALL STRSPLIT( LINE(26:), ' ', SUBSTRS, N )
        IF ( INDEX( LINE, 'Species name' ) > 0 ) THEN
 
+#if defined( MODEL_GEOS )
           ! Define friendliness to dynamics / turbulence 
           FriendDyn  = .TRUE.
           FriendTurb = .TRUE.
@@ -606,13 +686,34 @@ CONTAINS
           if(MAPL_am_I_Root()) write(*,*) &
                    'GCC added to internal: TRC_'//TRIM(SUBSTRS(1)), &
                    '; Friends: ', TRIM(MYFRIENDLIES)
+#else
+          call MAPL_AddInternalSpec(GC, &
+              SHORT_NAME         = TRIM(SPFX) // TRIM(SUBSTRS(1)),  &
+              LONG_NAME          = TRIM(SUBSTRS(1)),  &
+              UNITS              = 'mol mol-1', &
+              DIMS               = MAPL_DimsHorzVert,    &
+              VLOCATION          = MAPL_VLocationCenter,    &
+              PRECISION          = ESMF_KIND_R8, &
+              FRIENDLYTO         = 'DYNAMICS:TURBULENCE:MOIST',  &
+              RESTART            = restartAttr, &
+              RC                 = RC  )
+         NADV = NADV+1
+         AdvSpc(NADV) = TRIM(SUBSTRS(1))
+       ELSEIF ( INDEX( LINE, 'Type of simulation' ) > 0 ) THEN
+          ! Read and store simulation type
+          READ( SUBSTRS(1:N), * ) SimType
+#endif
 
        ENDIF
     ENDDO
     CLOSE( IU_GEOS )
 
 !-- Add all additional species in KPP (careful not to add dummy species)
+#if defined( MODEL_GEOS )
     IF ( Nadv > 10 ) THEN ! Exclude specialty sims
+#else
+    IF ( SimType == 3 .OR. SimType == 10 ) THEN
+#endif
        DO I=1,NSPEC
           FOUND = .false.
        
@@ -621,12 +722,17 @@ CONTAINS
           IF ( SpcName(1:2) == 'RR' ) CYCLE
        
           DO J=1,Nadv !Size of AdvSpc
+#if defined( MODEL_GEOS )
              IF (trim(AdvSpc(J)) .eq. trim(SpcName)) THEN
                 FOUND = .true.
                 EXIT
              ENDIF
+#else
+             IF (trim(AdvSpc(J)) .eq. trim(SpcName)) FOUND = .true.
+#endif
           END DO
        
+#if defined( MODEL_GEOS )
           ! Add non-advected species to internal state 
           IF ( .NOT. Found ) THEN 
 
@@ -660,10 +766,23 @@ CONTAINS
              ! verbose
              if(MAPL_am_I_Root()) write(*,*)  &
                        'GCC added to internal: '//TRIM(SPFX)//TRIM(SpcName)
+#else
+          IF (Found .neqv. .true.) Then
+          call MAPL_AddInternalSpec(GC, &
+               SHORT_NAME         = TRIM(SPFX) // SpcName,  &
+               LONG_NAME          = SpcName,  &
+               UNITS              = 'mol mol-1', &
+               PRECISION          = ESMF_KIND_R8, &
+               DIMS               = MAPL_DimsHorzVert,    &
+               VLOCATION          = MAPL_VLocationCenter,    &
+               RESTART            = restartAttr,    &
+               RC                 = STATUS  )
+#endif
           Endif
        ENDDO
     ENDIF
 
+#if defined( MODEL_GEOS )
 !-- Add two extra advected species for use in family transport  (Manyin)
 
           CALL MAPL_AddInternalSpec(GC,                                    &
@@ -689,11 +808,16 @@ CONTAINS
              VLOCATION          = MAPL_VLocationCenter,                    &
                                                   __RC__ )
           if(MAPL_am_I_Root()) write(*,*) 'GCC added to internal: TRC_Cly; Friendly to: DYNAMICS'
+#endif
 
 !
 ! !EXTERNAL STATE:
 !
+#if defined( MODEL_GEOS )
 #   include "GEOSCHEMCHEM_ExportSpec___.h"
+#else
+#   include "GIGCchem_ExportSpec___.h"
+#endif
 
     ! Read HISTORY config file and add exports for unique items
     CALL ESMF_ConfigGetAttribute( myState%myCF, HistoryConfigFile, &
@@ -706,6 +830,8 @@ CONTAINS
 !BOC
 
 !-- Exports
+
+#if defined( MODEL_GEOS )
     DO I=1,Nadv
        iName = TRIM(AdvSpc(I))
        CALL Spc_Info ( am_I_Root = MAPL_am_I_Root(), iName=iName, &
@@ -832,10 +958,12 @@ CONTAINS
           VLOCATION          = MAPL_VLocationNone,                            &
                                                                      __RC__ )
     ENDDO
+#endif
 
     !=======================================================================
     ! Add provider services, if any (AERO, RATS, Analysis Ox)
     !=======================================================================
+#if defined( MODEL_GEOS )
 
     ! Check if GEOS-Chem is set as the AERO and/or RATS provider 
     ! ----------------------------------------------------------
@@ -1234,7 +1362,11 @@ CONTAINS
        DIMS               = MAPL_DimsHorzVert,         &
        VLOCATION          = MAPL_VLocationCenter,      &
                                                  __RC__ )
- 
+#else
+    CALL Provider_SetServices( MAPL_am_I_Root(), GC, isProvider, __RC__ )
+#endif
+
+ #if defined( MODEL_GEOS )
     ! Reaction coefficients & rates 
     ! -----------------------------
     DO I = 1, NREACT
@@ -1306,7 +1438,118 @@ CONTAINS
        IF ( TRIM(LongName) == 'NO2PHOTONNOO' ) id_jno2 = I
     ENDDO
     close(NUNIT)
+#endif
 
+#if !defined( MODEL_GEOS )
+    !=======================================================================
+    !              %%% Test for archived convection fields %%%
+    !=======================================================================
+    CALL ESMF_ConfigGetAttribute( myState%myCF, I, &
+            Label="ARCHIVED_CONV:", Default=0, __RC__ )
+    ArchivedConv = ( I == 1 )
+
+    ! Need to add archived convection fields to import state
+    IF ( ArchivedConv ) THEN
+       call MAPL_AddImportSpec(GC,                                  &
+          SHORT_NAME         = 'ARCHIVED_PFI_CN',                   &
+          LONG_NAME          = 'archived_PFI_CN',                   &
+          UNITS              = 'kg m-2 s-1',                        &
+          DIMS               = MAPL_DimsHorzVert,                   &
+          VLOCATION          = MAPL_VLocationEdge,                  &
+                                                            __RC__ )
+
+       call MAPL_AddImportSpec(GC,                                  &
+          SHORT_NAME         = 'ARCHIVED_PFL_CN',                   &
+          LONG_NAME          = 'archived_PFL_CN',                   &
+          UNITS              = 'kg m-2 s-1',                        &
+          DIMS               = MAPL_DimsHorzVert,                   &
+          VLOCATION          = MAPL_VLocationEdge,                  &
+                                                            __RC__ )
+
+       call MAPL_AddImportSpec(GC,                                  &
+          SHORT_NAME         = 'ARCHIVED_CNV_MFC',                  &
+          LONG_NAME          = 'archived_CNV_MFC',                  &
+          UNITS              = 'kg m-2 s-1',                        &
+          DIMS               = MAPL_DimsHorzVert,                   &
+          VLOCATION          = MAPL_VLocationEdge,                  &
+                                                            __RC__ )
+
+       call MAPL_AddImportSpec(GC,                                  &
+          SHORT_NAME         = 'ARCHIVED_CNV_MFD',                  &
+          LONG_NAME          = 'archived_CNV_MFD',                  &
+          UNITS              = 'kg m-2 s-1',                        &
+          DIMS               = MAPL_DimsHorzVert,                   &
+          VLOCATION          = MAPL_VLocationCenter,                &
+                                                            __RC__ )
+
+       call MAPL_AddImportSpec(GC,                                  &
+          SHORT_NAME         = 'ARCHIVED_CNV_CVW',                  &
+          LONG_NAME          = 'archived_CNV_CVW',                  &
+          UNITS              = 'hPa s-1',                           &
+          DIMS               = MAPL_DimsHorzVert,                   &
+          VLOCATION          = MAPL_VLocationCenter,                &
+                                                            __RC__ )
+
+       call MAPL_AddImportSpec(GC,                                  &
+          SHORT_NAME         = 'ARCHIVED_DQRC',                     &
+          LONG_NAME          = 'archived_DQRC',                     &
+          UNITS              = 'kg kg-1 s-1',                       &
+          DIMS               = MAPL_DimsHorzVert,                   &
+          VLOCATION          = MAPL_VLocationCenter,                &
+                                                            __RC__ )
+
+       call MAPL_AddImportSpec(GC,                                  &
+          SHORT_NAME         = 'ARCHIVED_REV_CN',                   &
+          LONG_NAME          = 'archived_REV_CN',                   &
+          UNITS              = 'kg kg-1 s-1',                       &
+          DIMS               = MAPL_DimsHorzVert,                   &
+          VLOCATION          = MAPL_VLocationCenter,                &
+                                                            __RC__ )
+
+       call MAPL_AddImportSpec(GC,                                  &
+          SHORT_NAME         = 'ARCHIVED_T',                        &
+          LONG_NAME          = 'archived_T',                        &
+          UNITS              = 'K',                                 &
+          DIMS               = MAPL_DimsHorzVert,                   &
+          VLOCATION          = MAPL_VLocationCenter,                &
+                                                            __RC__ )
+    ENDIF ! ArchivedConv 
+
+    ! OLSON
+    DO T = 1, NSURFTYPE
+       landTypeInt = T-1
+       IF ( landTypeInt < 10 ) THEN
+          WRITE ( landTypeStr, "(A1,I1)" ) '0', landTypeInt
+       ELSE
+          WRITE ( landTypeStr, "(I2)" ) landTypeInt  
+       ENDIF
+       importName = 'OLSON' // TRIM(landTypeStr)
+       CALL MAPL_AddImportSpec(GC,                                  &
+          SHORT_NAME         = importName,                          &
+          LONG_NAME          = 'OLSON_land_by_type',                &
+          UNITS              = 'unitless',                          &
+          DIMS               = MAPL_DimsHorzOnly,                   &
+                                                            __RC__ )
+    ENDDO
+
+    ! LAI
+    CALL MAPL_AddImportSpec(GC,                                  &
+       SHORT_NAME         = 'XLAIMULTI',                         &
+       LONG_NAME          = 'LAI_by_type',                       &
+       UNITS              = 'cm2 cm-2',                          &
+       DIMS               = MAPL_DimsHorzVert,                   &
+       VLOCATION          = MAPL_VLocationEdge,                  &
+                                                            __RC__ )
+
+    ! CHLR (chlorophyll-a, used in marine POA simulation only)
+    !CALL MAPL_AddImportSpec(GC,                                  &
+    !   SHORT_NAME         = 'XCHLRMULTI',                        &
+    !   LONG_NAME          = 'CHLR_by_type',                      &
+    !   UNITS              = 'mg m-3',                            &
+    !   DIMS               = MAPL_DimsHorzVert,                   &
+    !   VLOCATION          = MAPL_VLocationEdge,                  &
+    !                                                        __RC__ )
+#endif
 
     ! Set HEMCO services
     ! --------------------
