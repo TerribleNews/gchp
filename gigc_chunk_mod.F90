@@ -19,9 +19,7 @@ MODULE GIGC_Chunk_Mod
   USE MAPL_MOD
   USE ESMF
   USE ErrCode_Mod
-#if !defined( MODEL_GEOS )
   USE Precision_Mod
-#endif
 
   IMPLICIT NONE
   PRIVATE
@@ -394,13 +392,7 @@ CONTAINS
 ! !IROUTINE: gigc_chunk_run
 !
 ! !DESCRIPTION: Subroutine GIGC\_CHUNK\_RUN is the ESMF run method for
-!  the Grid-Independent GEOS-Chem (aka "GIGC").  This routine is the driver
-!  for the following operations:
-!
-! \begin{itemize}
-! \item Dry deposition
-! \item Chemistry
-! \end{itemize}
+!  GEOS-Chem.
 !
 ! !INTERFACE:
 !
@@ -409,7 +401,11 @@ CONTAINS
                              day,        dayOfYr,    hour,       minute,     &
                              second,     utc,        hElapsed,   Input_Opt,  &
                              State_Chm,  State_Met,  State_Diag, Phase,      &
-                             IsChemTime, FrstRewind, RC )
+                             IsChemTime,                                     &
+#if defined( MODEL_GEOS )
+                             FrstRewind, &
+#endif
+                             RC )
 !
 ! !USES:
 !
@@ -440,26 +436,24 @@ CONTAINS
     USE UCX_Mod,            ONLY : Set_H2O_Trac
 
     ! Utilities
-    USE ErrCode_Mod
     USE GC_Grid_Mod,        ONLY : AREA_M2
     USE HCO_Error_Mod
     USE HCO_Interface_Mod,  ONLY : SetHcoTime
     USE Pressure_Mod,       ONLY : Accept_External_Pedge
     USE State_Chm_Mod,      ONLY : IND_
     USE Time_Mod,           ONLY : Accept_External_Date_Time
-#if defined( MODEL_GEOS )
     USE UnitConv_Mod,       ONLY : Convert_Spc_Units
-#endif
 
     ! Diagnostics
     USE Diagnostics_Mod,    ONLY : Set_Diagnostics_EndofTimestep
+    USE Aerosol_Mod,        ONLY : Set_AerMass_Diagnostic
 
+#if defined( MODEL_GEOS )
     USE CMN_SIZE_MOD,       ONLY : IIPAR, JJPAR, LLPAR
-    USE PRECISION_MOD
     USE DAO_MOD,            ONLY : GET_COSINE_SZA
-    USE DiagList_Mod,       ONLY : DgnList 
     USE DIAG_MOD,           ONLY : AD21
     USE HCOI_GC_MAIN_MOD,   ONLY : HCOI_GC_WriteDiagn
+#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -480,7 +474,9 @@ CONTAINS
     REAL*4,         INTENT(IN)    :: hElapsed    ! Elapsed hours
     INTEGER,        INTENT(IN)    :: Phase       ! Run phase (1 or 2)
     LOGICAL,        INTENT(IN)    :: IsChemTime  ! Time for chemistry? 
+#if defined( MODEL_GEOS )
     LOGICAL,        INTENT(IN)    :: FrstRewind  ! Is it the first rewind? 
+#endif
 !
 ! !INPUT/OUTPUT PARAMETERS:
 !
@@ -538,10 +534,9 @@ CONTAINS
 !BOC
     TYPE(MAPL_MetaComp), POINTER   :: STATE
     REAL*8                         :: DT
-    CHARACTER(LEN=ESMF_MAXSTR)     :: Iam
-    INTEGER                        :: STATUS
+    CHARACTER(LEN=ESMF_MAXSTR)     :: Iam, OrigUnit
+    INTEGER                        :: STATUS, HCO_PHASE
 #if defined( MODEL_GEOS )
-    CHARACTER(LEN=ESMF_MAXSTR)     :: OrigUnit
     INTEGER                        :: N, I, J, L
 #endif
 
@@ -559,17 +554,18 @@ CONTAINS
     ! First call?
     LOGICAL, SAVE                  :: FIRST = .TRUE.
 
+    ! Update mixing ratios during AirQnt due to pressure change?
+    LOGICAL                        :: pUpdate
+
     ! # of times this routine has been called. Only temporary for printing 
     ! processes on the first 10 calls.
     INTEGER, SAVE                  :: NCALLS = 0
 
-    ! UV month
-    INTEGER, SAVE                  :: UVmonth = -999
-
+#if defined( MODEL_GEOS )
     ! Strat. H2O settings 
     LOGICAL                        :: SetStratH2O 
     LOGICAL, SAVE                  :: LSETH2O_orig
-!----
+#endif
 
     !=======================================================================
     ! GIGC_CHUNK_RUN begins here 
@@ -629,18 +625,27 @@ CONTAINS
     ! covers convection or turbulence, they should not be applied here!
     ! The tendencies are only applied if turbulence is not done within
     ! GEOS-Chem (ckeller, 10/14/14).
+    ! 
+    ! The standard number of phases in GCHP is 1, set in GCHP.rc, which
+    ! results in Phase -1 in gigc_chunk_run. This results in executing
+    ! all GEOS-Chem components in a single run rather than splitting up
+    ! across two runs as is done in GEOS-5. (ewl, 10/26/18)
     !=======================================================================
 
     ! By default, do processes as defined in input.geos. DoTend defined below. 
     DoConv   = Input_Opt%LCONV                    ! dynamic time step
     DoDryDep = Input_Opt%LDRYD .AND. IsChemTime   ! chemistry time step
     DoEmis   = Input_Opt%LEMIS .AND. IsChemTime   ! chemistry time step
+#if defined( MODEL_GEOS 
     DoTurb   = Input_Opt%LTURB .AND. IsChemTime   ! dynamic time step
+#else
+    DoTurb   = Input_Opt%LTURB                    ! dynamic time step
+#endif
     DoChem   = Input_Opt%LCHEM .AND. IsChemTime   ! chemistry time step
     DoWetDep = Input_Opt%LWETD                    ! dynamic time step 
 
-    ! Only do selected processes for given phases: 
-    ! Phase 1: disable turbulence, chemistry and wet deposition. 
+    ! If Phase is not -1, only do selected processes for given phases: 
+    ! Phase 1: disable turbulence, chemistry and wet deposition.
     IF ( Phase == 1 ) THEN
        DoTurb   = .FALSE.
        DoChem   = .FALSE.
@@ -710,11 +715,13 @@ CONTAINS
                                     State_Met      = State_Met,  &
                                     RC             = RC         )
 
+#if defined( MODEL_GEOS )
     ! Eventually set tropopause pressure according to ozone values
     ! (use ozonopause) 
     CALL SET_OZONOPAUSE ( am_I_Root, Input_Opt,  State_Met, &
                           State_Chm, IM, JM, LM, RC )
     IF ( RC /= GC_SUCCESS ) RETURN 
+#endif
 
     ! Set dry surface pressure (PS1_DRY) from State_Met%PS1_WET
     CALL SET_DRY_SURFACE_PRESSURE( State_Met, 1 )
@@ -722,23 +729,25 @@ CONTAINS
     ! Set dry surface pressure (PS2_DRY) from State_Met%PS2_WET
     CALL SET_DRY_SURFACE_PRESSURE( State_Met, 2 )
 
-    ! Initialize surface pressures prior to interpolation
-    ! to allow initialization of floating pressures
+    ! Initialize surface pressures to match the post-advection pressures
     State_Met%PSC2_WET = State_Met%PS1_WET
     State_Met%PSC2_DRY = State_Met%PS1_DRY
     CALL SET_FLOATING_PRESSURES( am_I_Root, State_Met, RC )
     IF ( RC /= GC_SUCCESS ) RETURN
 
-    ! Define airmass and related quantities
-    !CALL AirQnt( am_I_Root, Input_opt, State_Met, State_Chm, RC, (.not.FIRST) )
-    CALL AirQnt( am_I_Root, Input_opt, State_Met, State_Chm, RC, .FALSE. )
+    ! Define airmass and related quantities, and determine whether to scale
+    ! species mixing ratios to account for mass conservation across 
+    ! pressure changes. Only scale mixing ratios if transport is OFF and
+    ! it is after the first timestep. If transport is ON then species
+    ! should be "insensitive" to changes in pressure. If it is the first 
+    ! timestep then pressure history is not available for the scaling.
+#if defined( MODEL_GEOS )
+    pUpdate = .FALSE.
+#else
+    pUpdate = ((.not.FIRST).and.(.not.Input_Opt%LTRAN))
+#endif
+    CALL AirQnt( am_I_Root, Input_opt, State_Met, State_Chm, RC, pUpdate )
     IF ( RC /= GC_SUCCESS ) RETURN
-
-    ! Save the initial tracer concentrations in the MINIT variable of
-    ! GeosCore/strat_chem_mod.F90.  This has to be done here, after the
-    ! very first call to AIRQNT, because we need State_Chm%AD to have been
-    ! populated with non-zero values.  Otherwise the unit conversions will
-    ! blow up and cause GCHP to crash. (bmy, 10/19/16)
 
     ! Cap the polar tropopause pressures at 200 hPa, in order to avoid
     ! tropospheric chemistry from happening too high up (cf. J. Logan)
@@ -776,12 +785,13 @@ CONTAINS
 !       ENDDO
 !       ENDDO
 !    ENDIF
+#endif
     
     ! Convert total mixing ratio to dry mixing ratio
     CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Met, State_Chm, &
-                            'kg/kg dry', RC )
-#endif
+                            'kg/kg dry', RC, OrigUnit=OrigUnit )
 
+    !=======================================================================
     ! SDE 05/28/13: Set H2O to STT if relevant
     ! Tropospheric H2O is always prescribed (using GEOS Q). For strat H2O
     ! there are three options, controlled by toggles 'set initial global MR'
@@ -790,10 +800,13 @@ CONTAINS
     ! (B) prescribe strat H2O on initial time step --> toggle in input.goes on
     ! (C) always prescribe strat H2O --> toggle in GEOSCHEMchem_GridComp.rc on
     !=======================================================================
-    IF ( FIRST ) LSETH2O_orig = Input_Opt%LSETH2O
+#if defined( MODEL_GEOS )
+    IF ( FIRST ) THEN
+       LSETH2O_orig = Input_Opt%LSETH2O
+    ENDIF
     IF ( IND_('H2O') > 0 ) THEN
-       IF ( FIRST .OR. FrstRewind ) Input_Opt%LSETH2O = LSETH2O_orig
        SetStratH2O = .FALSE.
+       IF ( FIRST .OR. FrstRewind ) Input_Opt%LSETH2O = LSETH2O_orig
        IF ( Input_Opt%LSETH2O      ) SetStratH2O = .TRUE.
        IF ( .NOT. Input_Opt%LUCX   ) SetStratH2O = .TRUE.
        IF ( Input_Opt%AlwaysSetH2O ) SetStratH2O = .TRUE.
@@ -802,23 +815,42 @@ CONTAINS
       ! Only force strat once if using UCX
        IF (Input_Opt%LSETH2O) Input_Opt%LSETH2O = .FALSE.
     ENDIF
+#else
+    IF ( IND_('H2O','A') > 0 ) THEN
+       SetStratH2O = .FALSE.
+       IF ( Input_Opt%LSETH2O .OR. .NOT. Input_Opt%LUCX ) THEN
+          SetStratH2O = .TRUE.
+       ENDIF
+       CALL SET_H2O_TRAC( am_I_Root, SetStratH2O, & 
+                          Input_Opt, State_Met, State_Chm, RC )
+       ASSERT_(RC==GC_SUCCESS)
 
+      ! Only force strat once if using UCX
+       IF (Input_Opt%LSETH2O) Input_Opt%LSETH2O = .FALSE.
+    ENDIF
+#endif
+
+#if defined( MODEL_GEOS )
     ! Compute the cosine of the solar zenith angle array
     ! State_Met%SUNCOS     = at the current time
     ! State_Met%SUNCOSmid  = at the midpt of the chem timestep
     ! State_Met%SUNCOSmid5 = at the midpt of the chem timestep 5hrs ago
     CALL GET_COSINE_SZA( am_I_Root, Input_Opt, State_Met, RC )
+    ASSERT_(RC==GC_SUCCESS)
+#endif
 
     !=======================================================================
-    ! EMISSIONS phase 1. Should be called every time to make sure that the
-    ! HEMCO clock and the HEMCO data list are up to date.
+    ! EMISSIONS. Pass HEMCO Phase 1 which only updates the HEMCO clock
+    ! and the HEMCO data list. Should be called every time to make sure 
+    ! that the HEMCO clock and the HEMCO data list are up to date.
     !=======================================================================
+    HCO_PHASE = 1
     CALL EMISSIONS_RUN( am_I_Root, Input_Opt,  State_Met,     &
-                        State_Chm, State_Diag, DoEmis, 1, RC )
+                        State_Chm, State_Diag, DoEmis, HCO_PHASE, RC )
     ASSERT_(RC==GC_SUCCESS)
 
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-!!!                                PHASE 1                                 !!!
+!!!                                PHASE 1 or -1                           !!!
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     !=======================================================================
@@ -887,19 +919,11 @@ CONTAINS
     ! about the vertical distribution. The tracer tendencies are only added
     ! to the tracers array after emissions, drydep. So we need to use the
     ! emissions time step here.
-    ! Subroutine DO_TEND operates in mass units, e.g. the tracers must be 
-    ! in [kg].
-    ! SDE 2016-04-05: Input units should now be v/v dry. 
     !=======================================================================
     IF ( DoTend ) THEN 
        if(am_I_Root.and.NCALLS<10) write(*,*)   &
                            ' --- Add emissions and drydep to tracers'
        CALL MAPL_TimerOn( STATE, 'GC_FLUXES' )
-
-       ! Make sure tracers are in v/v
-       CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Met, &
-                                State_Chm, 'v/v dry', RC )
-       IF ( RC /= GC_SUCCESS ) RETURN 
 
        ! Get emission time step [s]. 
        ASSERT_(ASSOCIATED(HcoState))
@@ -909,11 +933,6 @@ CONTAINS
        CALL DO_TEND ( am_I_Root, Input_Opt, State_Met, State_Chm,  &
                       State_Diag, .FALSE., RC, DT=DT )
        ASSERT_(RC==GC_SUCCESS)
-
-       ! Convert species conc back to [kg/kg dry air] after mixing (ewl, 8/12/15)
-       CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Met, &
-                                State_Chm, 'kg/kg dry', RC )
-       IF ( RC /= GC_SUCCESS ) RETURN 
 
        ! testing only
        if(am_I_Root.and.NCALLS<10) write(*,*)   &
@@ -925,7 +944,7 @@ CONTAINS
     ENDIF ! Tendencies 
 
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-!!!                              PHASE 2                                !!!
+!!!                              PHASE 2 or -1                             !!!
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     !=======================================================================
@@ -935,8 +954,6 @@ CONTAINS
     ! in input.geos. This should only be done if turbulence is not covered
     ! by another gridded component and/or the GC species are not made
     ! friendly to this component!!
-    ! Subroutine DO_MIXING operates in mixing ratios, e.g. the tracers must 
-    ! be in [v/v]. 
     !=======================================================================
     IF ( DoTurb ) THEN
        if(am_I_Root.and.NCALLS<10) write(*,*) ' --- Do turbulence now'
@@ -954,9 +971,14 @@ CONTAINS
 
     ! Set tropospheric CH4 concentrations and fill species array with
     ! current values. 
+#if defined( MODEL_GEOS )
     ! ckeller, 2018/10/26: only if CH4 emissions are disabled in input.geos 
     IF ( .NOT. Input_Opt%LCH4EMIS ) THEN
        IF ( DoTurb .OR. DoTend ) THEN
+#else
+    IF ( Phase /= 2 .AND. Input_Opt%ITS_A_FULLCHEM_SIM ) THEN
+       IF ( IND_('CH4','A') > 0 ) THEN
+#endif
           CALL SET_CH4 ( am_I_Root, Input_Opt, State_Met, State_Chm, &
                          State_Diag, RC )
           ASSERT_(RC==GC_SUCCESS)
@@ -974,10 +996,18 @@ CONTAINS
        ! Met field. State_Met%TO3 is imported from PCHEM (ckeller, 10/21/2014).
        CALL COMPUTE_OVERHEAD_O3( am_I_Root, DAY, .TRUE., State_Met%TO3 )
 
+#if !defined( MODEL_GEOS )
+       ! Set H2O to species value if H2O is advected
+       IF ( IND_('H2O','A') > 0 ) THEN
+          CALL SET_H2O_TRAC( am_I_Root, (.not. Input_Opt%LUCX), Input_Opt, &
+                             State_Met, State_Chm, RC )
+          ASSERT_(RC==GC_SUCCESS)
+       ENDIF
+#endif
+
        ! Do chemistry
        CALL Do_Chemistry( am_I_Root, Input_Opt, State_Met, &
                           State_Chm, State_Diag, RC ) 
-
        ASSERT_(RC==GC_SUCCESS)
 
        CALL MAPL_TimerOff( STATE, 'GC_CHEM' )
@@ -1011,17 +1041,26 @@ CONTAINS
     ! in the Radiation Menu. This must be done before the call to any
     ! diagnostic and only on a chemistry timestep.
     ! (skim, 02/05/11)
+#if defined( MODEL_GEOS )
     ! RECOMPUTE_OD also contains a call to AEROSOL_CONC, which updates
     ! the PM25 diagnostics.
     !IF ( DoChem .AND. ND21 > 0 ) THEN
     !IF ( DoChem ) THEN
-       ! Recompute_OD populates the AD21 diagnostics. Make sure to flush
-       ! them first (ckeller, 8/9/17)
-       IF ( Input_Opt%ND21 > 0 ) AD21(:,:,:,:) = 0.0
+    ! Recompute_OD populates the AD21 diagnostics. Make sure to flush
+    ! them first (ckeller, 8/9/17)
+    IF ( Input_Opt%ND21 > 0 ) AD21(:,:,:,:) = 0.0
+#else
+    IF ( DoChem ) THEN
+#endif
        CALL RECOMPUTE_OD ( am_I_Root, Input_Opt,  State_Met, &
                            State_Chm, State_Diag, RC )
        ASSERT_(RC==GC_SUCCESS)
+#if defined( MODEL_GEOS )
     !ENDIF
+    !ENDIF
+#else
+    ENDIF
+#endif
 
     CALL MAPL_TimerOn( STATE, 'GC_DIAGN' )
 
@@ -1031,22 +1070,26 @@ CONTAINS
                                         State_Chm, State_Diag, RC )
     ASSERT_(RC==GC_SUCCESS)
 
+    ! Archive aerosol mass and PM2.5 diagnostics
+    IF ( State_Diag%Archive_AerMass ) THEN
+       CALL Set_AerMass_Diagnostic( am_I_Root, Input_Opt,  State_Met, &
+                                    State_Chm, State_Diag, RC         )
+       ASSERT_(RC==GC_SUCCESS)
+    ENDIF
+
     ! Write HEMCO diagnostics 
     CALL HCOI_GC_WriteDiagn( am_I_Root, Input_Opt, .FALSE., RC )
     ASSERT_(RC==GC_SUCCESS)
 
     CALL MAPL_TimerOff( STATE, 'GC_DIAGN' )
 
+    !=======================================================================
+    ! Convert State_Chm%Species
+    !=======================================================================
+    CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Met, State_Chm, &
+                            OrigUnit, RC )
 
 #if defined( MODEL_GEOS )
-    !=======================================================================
-    ! Convert species back to kg/kg total
-    !=======================================================================
-
-    ! Convert dry mixing ratio to total mixing ratio
-    CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Met, State_Chm, &
-                            'kg/kg total', RC )
-
     ! Save specific humidity and dry air mass for total mixing ratio 
     ! adjustment in next timestep, if needed (ewl, 11/8/18)
     State_Met%SPHU_PREV = State_Met%SPHU
@@ -1093,7 +1136,7 @@ CONTAINS
     USE State_Met_Mod,         ONLY : MetState, Cleanup_State_Met
     USE HCOI_GC_MAIN_MOD,      ONLY : HCOI_GC_FINAL
     USE State_Diag_Mod,        ONLY : DgnState, Cleanup_State_Diag
-    USE DiagList_Mod,          ONLY : DgnList, Cleanup_DiagList
+    USE DiagList_Mod,          ONLY : Cleanup_DiagList
     USE Diagnostics_Mod
 !
 ! !INPUT PARAMETERS:
@@ -1203,8 +1246,6 @@ CONTAINS
 !
 ! !USES:
 !
-    USE ErrCode_Mod
-    USE Precision_Mod
     USE Input_Opt_Mod, ONLY : OptInput
     USE State_Met_Mod, ONLY : MetState
     USE State_Chm_Mod, ONLY : ChmState, Ind_
