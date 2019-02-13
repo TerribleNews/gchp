@@ -31,8 +31,7 @@ MODULE GIGC_Chunk_Mod
 !
 ! !PRIVATE MEMBER FUNCTIONS:
 !
-  PRIVATE :: SET_OZONOPAUSE   ! GEOS-5 only
-!  PRIVATE :: StateDiag2Export ! GEOS-5 only
+  PRIVATE :: SET_OZONOPAUSE
 !
 ! !REVISION HISTORY:
 !  22 Jun 2009 - R. Yantosca & P. Le Sager - Chunkized & cleaned up.
@@ -48,24 +47,6 @@ MODULE GIGC_Chunk_Mod
 !------------------------------------------------------------------------------
 !BOC
 
-! GEOS-5 only:
-!
-! !PRIVATE TYPES:
-!
-!  ! Derived type for chunk diagnostic output (for code validation)
-!  TYPE GC_DIAG
-!     LOGICAL                    :: DO_PRINT     ! Should we print out?
-!     INTEGER                    :: N_DIAG       ! # of diag quantities
-!     INTEGER                    :: COUNT        ! Counter for averaging
-!     CHARACTER(LEN=10), POINTER :: NAME(:)      ! Tracer names
-!     REAL*8,            POINTER :: TRACER(:,:)  ! Tracer concentrations
-!     CHARACTER(LEN=40)          :: FILENAME     ! File name for output
-!     INTEGER                    :: LUN          ! File unit # for output
-!  END TYPE GC_DIAG
-!
-!  ! Derived type object for saving concentration diagnostics
-!  TYPE(GC_DIAG)                 :: DIAG_COL
-!---
 
 CONTAINS
 !EOC
@@ -83,7 +64,6 @@ CONTAINS
 !\\
 ! !INTERFACE:
 !
-! GEOS-5 only:
   SUBROUTINE GIGC_Chunk_Init( am_I_Root,  value_I_LO,      value_J_LO,      &
                               value_I_HI, value_J_HI,      value_IM,        &
                               value_JM,   value_LM,        value_IM_WORLD,  &
@@ -95,18 +75,6 @@ CONTAINS
                                                            Input_Opt,       &
                               State_Chm,  State_Diag,      State_Met,       &
                               HcoConfig,  HistoryConfig,   RC )
-! GCHP instead:
-!  SUBROUTINE GIGC_Chunk_Init( am_I_Root,  value_I_LO,    value_J_LO,     & 
-!                              value_I_HI, value_J_HI,    value_IM,       &
-!                              value_JM,   value_LM,      value_IM_WORLD, &
-!                              value_JM_WORLD,            value_LM_WORLD, &
-!                              nymdB,      nhmsB,         nymdE,          &
-!                              nhmsE,      tsChem,        tsDyn,          &
-!                              lonCtr,     latCtr,        myPET,          &
-!                              GC,         EXPORT,        Input_Opt,      &
-!                              State_Chm,  State_Diag,    State_Met,      &
-!                              HcoConfig,  HistoryConfig, RC      )
-!---
 !
 ! !USES:
 !
@@ -118,7 +86,7 @@ CONTAINS
     USE Fast_JX_Mod,             ONLY : Init_FJX
     USE GC_Environment_Mod
     USE GC_Grid_Mod,             ONLY : SetGridFromCtr
-    USE GC_Grid_Mod,             ONLY : Set_xOffSet, Set_yOffSet ! GEOS-5 only
+    USE GC_Grid_Mod,             ONLY : Set_xOffSet, Set_yOffSet
     USE GIGC_HistoryExports_Mod, ONLY : HistoryConfigObj
     USE HCO_Types_Mod,           ONLY : ConfigObj
     USE Input_Mod,               ONLY : Read_Input_File
@@ -131,8 +99,8 @@ CONTAINS
     USE State_Chm_Mod,           ONLY : ChmState
     USE State_Diag_Mod,          ONLY : DgnState
     USE State_Met_Mod,           ONLY : MetState
-    USE Strat_Chem_Mod,          ONLY : Init_Strat_Chem          ! GEOS-5 only
-    USE Tendencies_Mod,          ONLY : TEND_INIT                ! GEOS-5 only
+    USE Strat_Chem_Mod,          ONLY : Init_Strat_Chem
+    USE Tendencies_Mod,          ONLY : TEND_INIT
     USE Time_Mod,                ONLY : Set_Timesteps
     USE UCX_MOD,                 ONLY : INIT_UCX
     USE UnitConv_Mod,            ONLY : Convert_Spc_Units
@@ -164,10 +132,6 @@ CONTAINS
 !
 ! !INPUT/OUTPUT PARAMETERS:
 !
-! GCHP only:
-!    TYPE(ESMF_State), INTENT(INOUT), TARGET :: EXPORT ! Export state object
-!    TYPE(ESMF_GridComp), INTENT(INOUT) :: GC          ! Ref to this GridComp
-!---
     TYPE(OptInput),     INTENT(INOUT) :: Input_Opt   ! Input Options object
     TYPE(ChmState),     INTENT(INOUT) :: State_Chm   ! Chemistry State object 
     TYPE(DgnState),     INTENT(INOUT) :: State_Diag  ! Diagnostics State object
@@ -233,7 +197,6 @@ CONTAINS
     ! Assume success
     RC = GC_SUCCESS
 
-! GEOS-5 only:
     ! ckeller, 01/16/17
     Input_Opt%MAX_DIAG      = 1 
     Input_Opt%MAX_FAM       = 250
@@ -247,39 +210,9 @@ CONTAINS
     CALL Set_Input_Opt( am_I_Root, Input_Opt, RC )
     ASSERT_(RC==GC_SUCCESS)
 
-! GCHP has this code here, but it needs to go after reading input.geos
-! for GEOS-5 since the timesteps in input.geos are not used:
-!    ! Update Input_Opt with timing fields
-!    Input_Opt%NYMDb   = nymdB
-!    Input_Opt%NHMSb   = nhmsB
-!    Input_Opt%NYMDe   = nymdE
-!    Input_Opt%NHMSe   = nhmsE
-!    Input_Opt%TS_CHEM = INT( tsChem )   ! Chemistry timestep [sec]
-!    Input_Opt%TS_EMIS = INT( tsChem )   ! Chemistry timestep [sec]
-!    Input_Opt%TS_DYN  = INT( tsDyn  )   ! Dynamic   timestep [sec]
-!    Input_Opt%TS_CONV = INT( tsDyn  )   ! Dynamic   timestep [sec]
-!    Input_Opt%myCPU   = myPET
-!---
-
-! GEOS-5 vs GCHP NOTE: In GEOS-5 input.geos is read by every thread so 
-! values are not broadcasted. Do this in a future version of GCHP since 
-! little overhead to read file. Beware init order changes in v11-02f.
-
     ! Read GEOS-Chem input file at very beginning of simulation
     CALL Read_Input_File( am_I_Root, Input_Opt, RC )
     ASSERT_(RC==GC_SUCCESS)
-
-! GCHP only (commented out in GEOS-5):
-!    ! In the ESMF/MPI environment, we can get the total overhead ozone
-!    ! either from the met fields (GIGCsa) or from the Import State (GEOS-5)
-!    Input_Opt%USE_O3_FROM_MET = .TRUE.
-!
-!    ! Read LINOZ climatology
-!    IF ( Input_Opt%LLINOZ ) THEN
-!       CALL Linoz_Read( am_I_Root, Input_Opt, RC ) 
-!       ASSERT_(RC==GC_SUCCESS)
-!    ENDIF
-!---
 
     ! Allocate all lat/lon arrays including CMN_Size_Mod parameters
     CALL GC_Allocate_All( am_I_Root      = am_I_Root,                     &
@@ -298,43 +231,6 @@ CONTAINS
                           RC             = RC              )            
     ASSERT_(RC==GC_SUCCESS)
 
-! GCHP only (commented out in GEOS-5):
-!    ! ewl TODO: Is this calculation of dlon/dlat needed for GCHP or GEOS-5?
-!    !========================================================================
-!    ! Compute the DLON and DLAT values.  NOTE, this is a kludge since to do
-!    ! this truly rigorously, we should take the differences between the grid
-!    ! box edges.  But because I can't seem to find a way to get the grid
-!    ! box edge information, the next best thing is to take the differences
-!    ! between the grid box centers.  They should all be the same given that
-!    ! the GEOS-Chem grid is regular. (bmy, 12/7/12)
-!    !========================================================================
-!    DO L = 1, LLPAR
-!    DO J = 1, JJPAR
-!    DO I = 1, IIPAR
-!    
-!       ! Compute Delta-Longitudes [degrees]
-!       IF ( I == IIPAR ) THEN
-!          dLon(I,J,L) = RoundOff( ( DBLE( lonCtr(IIPAR,  J) ) / PI_180 ), 4 ) &
-!                      - RoundOff( ( DBLE( lonCtr(IIPAR-1,J) ) / PI_180 ), 4 )
-!       ELSE
-!          dLon(I,J,L) = RoundOff( ( DBLE( lonCtr(I+1,    J) ) / PI_180 ), 4 ) &
-!                      - RoundOff( ( DBLE( lonCtr(I,      J) ) / PI_180 ), 4 )
-!       ENDIF
-!    
-!       ! Compute Delta-Latitudes [degrees]
-!       IF ( J == JJPAR ) THEN
-!          dLat(I,J,L) = RoundOff( ( DBLE( latCtr(I,JJPAR  ) ) / PI_180 ), 4 ) &
-!                      - RoundOff( ( DBLE( latCtr(I,JJPAR-1) ) / PI_180 ), 4 )
-!       ELSE
-!          dLat(I,J,L) = RoundOff( ( DBLE( latCtr(I,J+1    ) ) / PI_180 ), 4 ) &
-!                      - RoundOff( ( DBLE( latCtr(I,J      ) ) / PI_180 ), 4 )
-!       ENDIF
-!    
-!    ENDDO
-!    ENDDO
-!    ENDDO
-!----- 
-
     ! Initialize horizontal grid parameters
     CALL GC_Init_Grid( am_I_Root, Input_Opt, RC )
     ASSERT_(RC==GC_SUCCESS)
@@ -344,9 +240,6 @@ CONTAINS
                          lonCtr,    latCtr,      RC      )
     ASSERT_(RC==GC_SUCCESS)
 
-! GEOS-5: This code is in GCHP but at an earlier stage. However, it must
-! be set right before setting timesteps so that input.geos values are
-! not used:
     ! Update Input_Opt with timing fields
     Input_Opt%NYMDb   = nymdB
     Input_Opt%NHMSb   = nhmsB
@@ -357,7 +250,6 @@ CONTAINS
     Input_Opt%TS_DYN  = INT( tsDyn  )   ! Dynamic   timestep [sec]
     Input_Opt%TS_CONV = INT( tsDyn  )   ! Dynamic   timestep [sec]
     Input_Opt%myCPU   = myPET
-!---
 
     ! Set GEOS-Chem timesteps on all CPUs
     CALL SET_TIMESTEPS( am_I_Root  = am_I_Root,                          &
@@ -374,26 +266,15 @@ CONTAINS
                            State_Chm, State_Diag, State_Met, RC )
     ASSERT_(RC==GC_SUCCESS)
 
-! GEOS-5 only (I deleted from GCHP. Needed for GEOS-5?):
     ! Make sure to reset I0 and J0 in grid_mod.F90 with
     ! the values carried in the Input Options object
     CALL Set_xOffSet( Input_Opt%NESTED_I0 )
     CALL Set_yOffSet( Input_Opt%NESTED_J0 )
-!---
 
     ! Initialize other GEOS-Chem modules
     CALL GC_Init_Extra( am_I_Root, HistoryConfig%DiagList, Input_Opt,    &
                         State_Chm, State_Diag, RC ) 
     ASSERT_(RC==GC_SUCCESS)
-
-! GCHP only:
-!    ! Initialize photolysis
-!    IF ( Input_Opt%ITS_A_FULLCHEM_SIM .OR.                     &
-!         Input_Opt%ITS_AN_AEROSOL_SIM ) THEN
-!       CALL Init_FJX( am_I_Root, Input_Opt, State_Chm, State_Diag, RC ) 
-!       ASSERT_(RC==GC_SUCCESS)
-!    ENDIF
-!---
 
 ! General note for both GCHP and GEOS-5. Setting the units here is somewhere
 ! dangerous. The species values MUST be these units for conversion routines
@@ -419,17 +300,6 @@ CONTAINS
        ASSERT_(RC==GC_SUCCESS)
     ENDIF
 
-! GCHP only:
-!    ! Allocate array of overhead O3 columns for TOMS if chemistry is on
-!    IF ( Input_Opt%LCHEM ) THEN
-!       CALL Init_TOMS( am_I_Root, Input_Opt, RC )
-!       ASSERT_(RC==GC_SUCCESS)
-!    ENDIF
-!---
-
-! GCHP vs GEOS-5 note: init_fjx is called within GCHP after init_chemistry.
-! This should be removed since it is called within init_chemistry
-
     ! Initialize HEMCO
     CALL EMISSIONS_INIT ( am_I_Root, Input_Opt, State_Met, State_Chm, RC, &
                           HcoConfig=HcoConfig )
@@ -443,17 +313,13 @@ CONTAINS
 
     ENDIF
 
-! GEOS-5 only (this is done later in GCHP, within gigc_chunk_run,
-! and does not have the LLSTRAT threshold applied (should it?):
     !IF ( Input_Opt%LSCHEM .AND. Input_Opt%LLSTRAT < value_LM ) THEN
      IF ( Input_Opt%LSCHEM ) THEN
        CALL INIT_STRAT_CHEM( am_I_Root, Input_Opt, State_Chm, & 
                              State_Met, RC )
        IF (RC /= GC_SUCCESS) RETURN
     ENDIF
-!----
 
-! GEOS-5 only (tend_init is not called in GCHP):
     !-------------------------------------------------------------------------
     ! Diagnostics and tendencies 
     !-------------------------------------------------------------------------
@@ -465,36 +331,6 @@ CONTAINS
     ! yet (ckeller, 11/29/17). 
     CALL Tend_Init ( am_I_Root, Input_Opt, State_Met, State_Chm, RC ) 
     ASSERT_(RC==GC_SUCCESS)
-!----
-
-    ! ewl TODO: Is this block needed for GEOS-5? If not, remove.
-    !=======================================================================
-    ! Make sure options are sane
-    !=======================================================================
-    ! In GEOS-5, we typically use the GEOS-5 online transport, convection 
-    ! and turbulence scheme to vertically distribute tracer concentrations.
-    ! In this case, emissions and dry deposition should only be applied to
-    ! the surface layer. This is similiar to the non-local PBL mixing scheme
-    ! used in GEOS-Chem. Since there are a lot of checks for the non-local
-    ! mixing scheme all over the GEOS-Chem code, we force it here to .TRUE.
-    ! if we are not doing turbulence within GEOS-Chem. This will make sure
-    ! that the dry deposition quantities are calculated w/r/t the surface
-    ! layer only (ckeller, 11/04/14).
-!    IF ( .NOT. Input_Opt%LTURB .AND. .NOT. Input_Opt%LNLPBL ) THEN
-!       Input_Opt%LNLPBL = .TRUE.
-!       IF ( am_I_Root ) THEN
-!          write(*,*) ' '
-!          write(*,*) ' SET GEOS-CHEM NON-LOCAL PBL MIXING TO TRUE '
-!          write(*,*) ' '
-!       ENDIF
-!    ENDIF
-
-! GCHP only (units remain kg/kg dry in GEOS-5?):
-!    ! Convert species units to internal state units (v/v dry)
-!    CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
-!                            State_Chm, 'v/v dry', RC )
-!    ASSERT_(RC==GC_SUCCESS)
-!----
 
     ! Return success
     RC = GC_Success
@@ -520,7 +356,6 @@ CONTAINS
 !
 ! !INTERFACE:
 !
-! GEOS-5 vs GCHP note: GEOS-5 gets passed FirstRewind
   SUBROUTINE GIGC_Chunk_Run( am_I_Root,  GC,   IM,   JM,         LM,         &
                              nymd,       nhms,       year,       month,      &
                              day,        dayOfYr,    hour,       minute,     &
@@ -571,14 +406,12 @@ CONTAINS
     ! Diagnostics
     USE Diagnostics_Mod,    ONLY : Set_Diagnostics_EndofTimestep
 
-! GEOS-5 only:
     USE CMN_SIZE_MOD,       ONLY : IIPAR, JJPAR, LLPAR
     USE PRECISION_MOD
     USE DAO_MOD,            ONLY : GET_COSINE_SZA
     USE DiagList_Mod,       ONLY : DgnList 
     USE DIAG_MOD,           ONLY : AD21
     USE HCOI_GC_MAIN_MOD,   ONLY : HCOI_GC_WriteDiagn
-!---
 !
 ! !INPUT PARAMETERS:
 !
@@ -754,11 +587,7 @@ CONTAINS
     DoConv   = Input_Opt%LCONV                    ! dynamic time step
     DoDryDep = Input_Opt%LDRYD .AND. IsChemTime   ! chemistry time step
     DoEmis   = Input_Opt%LEMIS .AND. IsChemTime   ! chemistry time step
-! GEOS-5:
     DoTurb   = Input_Opt%LTURB .AND. IsChemTime   ! dynamic time step
-! GCHP uses instead:
-!    DoTurb   = Input_Opt%LTURB                    ! dynamic time step
-!---
     DoChem   = Input_Opt%LCHEM .AND. IsChemTime   ! chemistry time step
     DoWetDep = Input_Opt%LWETD                    ! dynamic time step 
 
@@ -833,13 +662,11 @@ CONTAINS
                                     State_Met      = State_Met,  &
                                     RC             = RC         )
 
-! GEOS-5 only:
     ! Eventually set tropopause pressure according to ozone values
     ! (use ozonopause) 
     CALL SET_OZONOPAUSE ( am_I_Root, Input_Opt,  State_Met, &
                           State_Chm, IM, JM, LM, RC )
     IF ( RC /= GC_SUCCESS ) RETURN 
-!---
 
     ! Set dry surface pressure (PS1_DRY) from State_Met%PS1_WET
     CALL SET_DRY_SURFACE_PRESSURE( State_Met, 1 )
@@ -854,33 +681,16 @@ CONTAINS
     CALL SET_FLOATING_PRESSURES( am_I_Root, State_Met, RC )
     IF ( RC /= GC_SUCCESS ) RETURN
 
-! GEOS-5:
     ! Define airmass and related quantities
     !CALL AirQnt( am_I_Root, Input_opt, State_Met, State_Chm, RC, (.not.FIRST) )
     CALL AirQnt( am_I_Root, Input_opt, State_Met, State_Chm, RC, .FALSE. )
     IF ( RC /= GC_SUCCESS ) RETURN
-! GCHP uses instead:
-!    ! Define airmass and related quantities, and determine whether to scale
-!    ! species mixing ratios to account for mass conservation across 
-!    ! pressure changes. Only scale mixing ratios if transport is OFF and
-!    ! it is after the first timestep. If transport is ON then species
-!    ! should be "insensitive" to changes in pressure. If it is the first 
-!    ! timestep then pressure history is not available for the scaling.
-!    pUpdate = ((.not.FIRST).and.(.not.Input_Opt%LTRAN))
-!    CALL AirQnt( am_I_Root, Input_opt, State_Met, State_Chm, RC, pUpdate )
-!---
 
     ! Save the initial tracer concentrations in the MINIT variable of
     ! GeosCore/strat_chem_mod.F90.  This has to be done here, after the
     ! very first call to AIRQNT, because we need State_Chm%AD to have been
     ! populated with non-zero values.  Otherwise the unit conversions will
     ! blow up and cause GCHP to crash. (bmy, 10/19/16)
-! GEOS-5 only (not commented out in GCHP):
-!    IF ( FIRST .and. Input_Opt%LSCHEM ) THEN
-!       CALL INIT_STRAT_CHEM( am_I_Root, Input_Opt, State_Chm, State_Met, RC )
-!       Minit_is_set = .true.
-!    ENDIF
-!---
 
     ! Cap the polar tropopause pressures at 200 hPa, in order to avoid
     ! tropospheric chemistry from happening too high up (cf. J. Logan)
@@ -925,7 +735,6 @@ CONTAINS
 #endif
 
     ! SDE 05/28/13: Set H2O to STT if relevant
-! GEOS-5 only:
     ! Tropospheric H2O is always prescribed (using GEOS Q). For strat H2O
     ! there are three options, controlled by toggles 'set initial global MR'
     ! in input.geos and 'Prescribe_strat_H2O' in GEOSCHEMchem_GridComp.rc: 
@@ -945,23 +754,12 @@ CONTAINS
       ! Only force strat once if using UCX
        IF (Input_Opt%LSETH2O) Input_Opt%LSETH2O = .FALSE.
     ENDIF
-! GCHP is less complicated:
-!    IF ( IND_('H2O','A') > 0 ) THEN
-!       CALL SET_H2O_TRAC( am_I_Root, ((.NOT. Input_Opt%LUCX) .OR.    &
-!                          Input_Opt%LSETH2O ), Input_Opt, State_Met, &
-!                          State_Chm, RC )
-!       ! Only force strat once if using UCX
-!       IF (Input_Opt%LSETH2O) Input_Opt%LSETH2O = .FALSE.
-!    ENDIF
-!---
 
-! GEOS-5 only:
     ! Compute the cosine of the solar zenith angle array
     ! State_Met%SUNCOS     = at the current time
     ! State_Met%SUNCOSmid  = at the midpt of the chem timestep
     ! State_Met%SUNCOSmid5 = at the midpt of the chem timestep 5hrs ago
     CALL GET_COSINE_SZA( am_I_Root, Input_Opt, State_Met, RC )
-!---
 
     !=======================================================================
     ! EMISSIONS phase 1. Should be called every time to make sure that the
@@ -969,9 +767,7 @@ CONTAINS
     !=======================================================================
     CALL EMISSIONS_RUN( am_I_Root, Input_Opt,  State_Met,     &
                         State_Chm, State_Diag, DoEmis, 1, RC )
-! GEOS-5 only (should add to GCHP):
     ASSERT_(RC==GC_SUCCESS)
-!---
 
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 !!!                                PHASE 1                                 !!!
@@ -1010,13 +806,8 @@ CONTAINS
        CALL MAPL_TimerOn( STATE, 'GC_DRYDEP' )
     
        ! Do dry deposition
-! GEOS-5:
        CALL Do_DryDep ( am_I_Root, Input_Opt, State_Met, &
                         State_Chm, State_Diag, RC ) 
-! GCHP passes assignments instead:
-!       CALL Do_DryDep( am_I_Root, Input_Opt=Input_Opt, State_Chm=State_Chm, &
-!                       State_Met=State_Met, State_Diag=State_Diag, RC=RC )
-!---
        ASSERT_(RC==GC_SUCCESS)
 
        CALL MAPL_TimerOff( STATE, 'GC_DRYDEP' )
@@ -1033,14 +824,9 @@ CONTAINS
        if(am_I_Root.and.NCALLS<10) write(*,*) ' --- Do emissions now'
        CALL MAPL_TimerOn( STATE, 'GC_EMIS' )
 
-! GEOS-5 only:
        ! Call HEMCO run interface - Phase 2 
        CALL EMISSIONS_RUN ( am_I_Root, Input_Opt,  State_Met, &
                             State_Chm, State_Diag, IsChemTime, 2, RC )
-! GCHP passes Phase instead:
-!       CALL EMISSIONS_RUN ( am_I_Root, Input_Opt, State_Met, State_Chm, &
-!                            DoEmis, Phase, RC )
-!---
        ASSERT_(RC==GC_SUCCESS)
 
        CALL MAPL_TimerOff( STATE, 'GC_EMIS' )
@@ -1062,28 +848,20 @@ CONTAINS
                            ' --- Add emissions and drydep to tracers'
        CALL MAPL_TimerOn( STATE, 'GC_FLUXES' )
 
-! GEOS-5 only (???): 
        ! Make sure tracers are in v/v
        CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Met, &
                                 State_Chm, 'v/v dry', RC )
        IF ( RC /= GC_SUCCESS ) RETURN 
-!---
 
        ! Get emission time step [s]. 
        ASSERT_(ASSOCIATED(HcoState))
        DT = HcoState%TS_EMIS 
-
-! GEOS-5 only:
-!       ! Reset diagnostics if needed
-!       IF ( ASSOCIATED(State_Diag%DryDep) ) State_Diag%DryDep = 0.0
-!---
 
        ! Apply tendencies over entire PBL. Use emission time step.
        CALL DO_TEND ( am_I_Root, Input_Opt, State_Met, State_Chm,  &
                       State_Diag, .FALSE., RC, DT=DT )
        ASSERT_(RC==GC_SUCCESS)
 
-! GEOS-5 only (this unit conversion should not be necessary):
        ! Convert species conc back to [kg/kg dry air] after mixing (ewl, 8/12/15)
        CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Met, &
                                 State_Chm, 'kg/kg dry', RC )
@@ -1091,8 +869,7 @@ CONTAINS
 
        ! testing only
        if(am_I_Root.and.NCALLS<10) write(*,*)   &
-                                 '     Tendency time step [s]: ', DT 
-!---
+                                 '     Tendency time step [s]: ', DT
 
        CALL MAPL_TimerOff( STATE, 'GC_FLUXES' )
        if(am_I_Root.and.NCALLS<10) write(*,*)   &
@@ -1137,15 +914,6 @@ CONTAINS
           ASSERT_(RC==GC_SUCCESS)
        ENDIF
     ENDIF
-! GCHP also checks if a full chem simulation and CH4 is a species. Note that
-! it does not yet accept State_Diag:
-!    ! Set tropospheric CH4 concentrations and fill species array with
-!    ! current values. 
-!    IF ( Phase /= 2 .AND. Input_Opt%ITS_A_FULLCHEM_SIM  &
-!         .AND. IND_('CH4','A') > 0 ) THEN
-!       CALL SET_CH4 ( am_I_Root, Input_Opt, State_Met, State_Chm, RC )
-!    ENDIF
-!---
 
     !=======================================================================
     ! 5. Chemistry
@@ -1158,33 +926,10 @@ CONTAINS
        ! Met field. State_Met%TO3 is imported from PCHEM (ckeller, 10/21/2014).
        CALL COMPUTE_OVERHEAD_O3( am_I_Root, DAY, .TRUE., State_Met%TO3 )
 
-! GEOS-5 (commented out):
-!       ! Set H2O to STT if relevant
-!       IF ( IND_('H2O') > 0 ) THEN
-!          CALL SET_H2O_TRAC( am_I_Root, .TRUE., Input_Opt, &
-!                             State_Met, State_Chm, RC )
-!       ENDIF
-! GCHP does this instead:
-!       ! Set H2O to species value if H2O is advected
-!       IF ( IND_('H2O','A') > 0 ) THEN
-!          CALL SET_H2O_TRAC( am_I_Root, (.not. Input_Opt%LUCX), Input_Opt, &
-!                             State_Met, State_Chm, RC )
-!       ENDIF
-!---
-
-! GEOS-5:
        ! Do chemistry
        CALL Do_Chemistry( am_I_Root, Input_Opt, State_Met, &
                           State_Chm, State_Diag, RC ) 
 
-! GCHP passes assignments:
-!       CALL Do_Chemistry( am_I_Root  = am_I_Root,            & ! Root CPU?
-!                          Input_Opt  = Input_Opt,            & ! Input Options
-!                          State_Chm  = State_Chm,            & ! Chemistry State
-!                          State_Met  = State_Met,            & ! Met State
-!                          State_Diag = State_Diag,           & ! Diagn State
-!                          RC         = RC                   )  ! Success?
-!
        ASSERT_(RC==GC_SUCCESS)
 
        CALL MAPL_TimerOff( STATE, 'GC_CHEM' )
@@ -1211,7 +956,6 @@ CONTAINS
     ! Diagnostics 
     !=======================================================================
 
-! GEOS-5 only:
     !==============================================================
     !      ***** U P D A T E  O P T I C A L  D E P T H *****          
     !==============================================================
@@ -1230,20 +974,8 @@ CONTAINS
                            State_Chm, State_Diag, RC )
        ASSERT_(RC==GC_SUCCESS)
     !ENDIF
-! GCHP does not used AD21 and only recomputes OD if DoChem
-!    IF ( DoChem ) THEN
-!       ! Recalculate the optical depth at the wavelength(s) specified
-!       ! in the Radiation Menu. This must be done before the call to any
-!       ! diagnostic.
-!       CALL Recompute_OD( am_I_Root, Input_Opt,  State_Met,  &
-!                          State_Chm, State_Diag, RC         )
-!       ASSERT_(RC==GC_SUCCESS)
-!    ENDIF
-!---
 
-! GEOS-5 only:
     CALL MAPL_TimerOn( STATE, 'GC_DIAGN' )
-!---
 
     ! Set certain diagnostics dependent on state at end of step. This
     ! includes species concentration and dry deposition flux.
@@ -1251,13 +983,11 @@ CONTAINS
                                         State_Chm, State_Diag, RC )
     ASSERT_(RC==GC_SUCCESS)
 
-! GEOS-5 only (diagnostics):
     ! Write HEMCO diagnostics 
     CALL HCOI_GC_WriteDiagn( am_I_Root, Input_Opt, .FALSE., RC )
     ASSERT_(RC==GC_SUCCESS)
 
     CALL MAPL_TimerOff( STATE, 'GC_DIAGN' )
-!---
 
 
 #if defined( MODEL_GEOS )
@@ -1283,12 +1013,6 @@ CONTAINS
 
     ! First call is done
     FIRST = .FALSE.
-
-! GCHP only:
-!    ! Convert units to units of the internal state
-!    CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, State_Chm, &
-!                            'v/v dry', RC )
-!---
 
     ! Return success
     RC = GC_SUCCESS
@@ -1317,11 +1041,9 @@ CONTAINS
     USE State_Chm_Mod,         ONLY : ChmState, Cleanup_State_Chm
     USE State_Met_Mod,         ONLY : MetState, Cleanup_State_Met
     USE HCOI_GC_MAIN_MOD,      ONLY : HCOI_GC_FINAL
-! GEOS-5 only:
     USE State_Diag_Mod,        ONLY : DgnState, Cleanup_State_Diag
     USE DiagList_Mod,          ONLY : DgnList, Cleanup_DiagList
     USE Diagnostics_Mod
-!---
 !
 ! !INPUT PARAMETERS:
 !
@@ -1364,20 +1086,6 @@ CONTAINS
        ENDIF
     ENDIF
 
-    ! Deallocate fields of the Input Options object
-! GEOS-5 only:
-    ! The call to Cleanup_Input_Opt causes a memory leak error. Comment
-    ! for now (ckeller, 11/29/16).
-    ! CALL Cleanup_Input_Opt( am_I_Root, Input_Opt, RC )
-    !IF ( am_I_Root ) THEN
-    !   IF ( RC == GC_SUCCESS ) THEN
-    !      write(*,'(a)') 'Chem::Input_Opt Finalize... OK.'
-    !   ELSE
-    !      write(*,'(a)') 'Chem::Input_Opt Finalize... FAILURE.'
-    !   ENDIF
-    !ENDIF
-!---
-
     ! Deallocate fields of the Chemistry State object
     CALL Cleanup_State_Chm( am_I_Root, State_Chm, RC )
     IF ( am_I_Root ) THEN
@@ -1398,8 +1106,6 @@ CONTAINS
        ENDIF
     ENDIF
 
-! GEOS-5 only (this is an omission in GCHP - I remember putting it in
-! but somehow it never got pushed - add to v11-02):
     ! Deallocate fields of the Chemistry State object
     CALL Cleanup_State_Diag( am_I_Root, State_Diag, RC )
     IF ( am_I_Root ) THEN
@@ -2006,5 +1712,4 @@ CONTAINS
 
   END SUBROUTINE StateDiag2Export
 !EOC
-!---
 END MODULE GIGC_Chunk_Mod
