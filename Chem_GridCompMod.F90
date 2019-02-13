@@ -4336,9 +4336,15 @@ CONTAINS
 !
 ! !INPUT/OUTPUT PARAMETERS:
 !
+#if defined( MODEL_GEOS )
     TYPE(ESMF_GridComp), INTENT(INOUT), TARGET :: GC       ! Ref. to this GridComp
     TYPE(ESMF_State),    INTENT(INOUT), TARGET :: Import   ! Import State
     TYPE(ESMF_State),    INTENT(INOUT), TARGET :: Export   ! Export State
+#else
+    TYPE(ESMF_GridComp), INTENT(INOUT)         :: GC       ! Ref. to this GC
+    TYPE(ESMF_State),    INTENT(INOUT)         :: Import   ! Import State
+    TYPE(ESMF_State),    INTENT(INOUT)         :: Export   ! Export State
+#endif
     TYPE(ESMF_Clock),    INTENT(INOUT)         :: Clock    ! ESMF Clock object
 !
 ! !OUTPUT PARAMETERS:
@@ -4366,6 +4372,11 @@ CONTAINS
 !                              the restart file.
 !  08 May 2015 - C. Keller   - Removed species --> internal copying because
 !                              this is now done on every run-time step.
+
+#if !defined( MODEL_GEOS )
+!  07 Aug 2017 - E. Lundgren - Use species database instead of State_Chm vars 
+!                              Spec_Name and Spec_ID
+#endif
 !EOP
 !------------------------------------------------------------------------------
 !BOC
@@ -4390,6 +4401,16 @@ CONTAINS
     
     ! Pointers
     TYPE(MAPL_MetaComp), POINTER :: STATE
+
+#if !defined( MODEL_GEOS )
+    TYPE(Species),       POINTER :: ThisSpc
+
+    ! For species copying
+    INTEGER                     :: IND
+    TYPE(ESMF_STATE)            :: INTSTATE
+    REAL, POINTER               :: Ptr3D(:,:,:)    => NULL()
+    REAL(ESMF_KIND_R8), POINTER :: Ptr3D_R8(:,:,:) => NULL()
+#endif
 
     __Iam__('Finalize_')
 
@@ -4437,11 +4458,55 @@ CONTAINS
                    localPET = myPet,   &    ! PET # we are on now 
                    __RC__ )
 
+#if !defined( MODEL_GEOS )
+    !=========================================================================
+    ! Archive species in internal state. Do this only for species that are
+    ! not advected, since those need to be included in the restart file.
+    ! ckeller, 10/27/2014
+    !=========================================================================
+
+    ! Get Internal state
+    CALL MAPL_Get ( STATE, INTERNAL_ESMF_STATE=INTSTATE, __RC__ ) 
+
+    ! Loop over all species
+    DO I = 1, State_Chm%nSpecies
+ 
+       ! Get info about this species from the species database
+       ThisSpc => State_Chm%SpcData(I)%Info
+
+       ! Skip if empty
+       IF ( TRIM(ThisSpc%Name) == '' ) CYCLE
+
+       ! Is this a tracer?
+       IND = IND_( TRIM(ThisSpc%Name) )
+       IF ( IND >= 0 ) CYCLE
+
+       ! Get data from internal state and copy to species array
+       CALL MAPL_GetPointer( INTSTATE, Ptr3D_R8, TRIM(ThisSpc%Name), &
+                             notFoundOK=.TRUE., __RC__ )
+       IF ( .NOT. ASSOCIATED(Ptr3D_R8) ) CYCLE
+       Ptr3D_R8 = State_Chm%Species(:,:,LM:1:-1,IND)
+
+       ! Verbose 
+       if ( MAPL_am_I_Root()) write(*,*)                &
+                'Species written to INTERNAL state: ',  &
+                TRIM(ThisSpc%Name)
+    ENDDO
+
+    ! Nullify pointer
+     Ptr3D_R8 => NULL()
+#endif
+
+#if defined( MODEL_GEOS )
+    !=======================================================================
+    ! Print end-of-simulation output
+    !=======================================================================
 
     ! Print mean OH value to GEOS-Chem log-file
     IF ( Input_Opt%ITS_A_FULLCHEM_SIM ) THEN
        CALL Print_Mean_OH( GC, IM, JM, LM, logLun, __RC__ )
     ENDIF
+#endif
 
     !=======================================================================
     ! Finalize the Gridded Component
@@ -4450,11 +4515,13 @@ CONTAINS
     ! Save the PET # (aka CPU #) in Input_Opt
     Input_Opt%myCpu = myPet
 
+#if defined( MODEL_GEOS )
     ! Link HEMCO state to gridcomp objects
     ASSERT_(ASSOCIATED(HcoState))
     HcoState%GRIDCOMP => GC
     HcoState%IMPORT   => IMPORT
     HcoState%EXPORT   => EXPORT
+#endif
 
     ! Call the FINALIZE method of the GEOS-Chem column chemistry code
     CALL GIGC_Chunk_Final( am_I_Root = am_I_Root,  &   ! Is this the root PET?
@@ -4475,6 +4542,7 @@ CONTAINS
     ! Deallocate the history interface between GC States and ESMF Exports
     CALL Destroy_HistoryConfig( am_I_Root, HistoryConfig, RC )
 
+#if defined( MODEL_GEOS )
     ! Free local pointers
     O3               => NULL()
     O3PPMV           => NULL()
@@ -4495,6 +4563,10 @@ CONTAINS
     PTR_H2O          => NULL()
     PTR_GCCTO3       => NULL()
     PTR_GCCTTO3      => NULL()
+#else
+    ! Deallocate provide pointers and arrays
+    CALL Provider_Finalize( am_I_Root, __RC__ )
+#endif
 
     ! Finalize MAPL Generic
     CALL MAPL_GenericFinalize( GC, Import, Export, Clock, __RC__ )
@@ -4652,6 +4724,11 @@ CONTAINS
 !  30 Nov 2012 - R. Yantosca - Now return local indices I_LO, J_LO, I_HI, J_HI
 !  05 Dec 2012 - R. Yantosca - Removed latEdg argument; cosmetic changes
 !  13 Feb 2013 - E. Nielsen  - Restart file inquiry for GEOS-5
+#if !defined( MODEL_GEOS )
+!  05 Jan 2016 - S. D. Eastham - Fixed order of time calls
+!  02 Nov 2017 - E. Lundgren - Replace use of local GridGetInterior with 
+!                              call to MAPL_GridGetInterior (now public)
+#endif
 !EOP
 !------------------------------------------------------------------------------
 !BOC
@@ -4760,12 +4837,17 @@ CONTAINS
 
         IF(tsChem < tsDyn) THEN
          IF(MAPL_AM_I_ROOT())   &
+#if defined( MODEL_GEOS )
                 PRINT *,"GEOSCHEMCHEM_DT cannot be less than RUN_DT"
+#else
+                PRINT *,"Chem_DT cannot be less than RUN_DT"
+#endnf
          STATUS = 1
          VERIFY_(STATUS)
         ENDIF
     ENDIF
 
+#if defined( MODEL_GEOS )
     ! Simulation dates. Legacy stuff, not used. 
     ! Set to dummy values (ckeller, 1/18/18)
     IF ( PRESENT( nymdB ) ) nymdB = 20130701 
@@ -4795,6 +4877,7 @@ CONTAINS
           PRINT *," "
        END IF
     END IF
+#endif
 
     !=======================================================================
     ! Extract time/date information
@@ -4803,6 +4886,9 @@ CONTAINS
     ! Get the ESMF time object
     CALL ESMF_ClockGet( Clock,                    &
                         startTime    = startTime, &
+#if !defined( MODEL_GEOS )
+                        stopTime     = stopTime,  &
+#endif
                         currTime     = currTime,  &
                         advanceCount = count,     &
                          __RC__ )
@@ -4814,6 +4900,8 @@ CONTAINS
     ! Save fields for return
     IF ( PRESENT( nymd     ) ) CALL MAPL_PackTime( nymd, yyyy, mm, dd )
     IF ( PRESENT( nhms     ) ) CALL MAPL_PackTime( nhms, h,    m,  s  )
+
+#if defined( MODEL_GEOS )
     IF ( PRESENT( advCount ) ) advCount = count
     IF ( PRESENT( year     ) ) year     = yyyy
     IF ( PRESENT( month    ) ) month    = mm
@@ -4825,6 +4913,65 @@ CONTAINS
     IF ( PRESENT( utc      ) ) utc      = ( DBLE( h )        ) + & 
                                           ( DBLE( m )/60d0   ) + &
                                           ( DBLE( s )/3600d0 )
+#else
+    ! Get ending-time fields from the time object
+    CALL ESMF_TimeGet( stopTime, yy=yyyy, mm=mm, dd=dd, dayOfYear=doy, &
+                                 h=h,     m=m,   s=s,   __RC__ )
+
+    ! Save packed fields for return
+    IF ( PRESENT( nymdE    ) ) CALL MAPL_PackTime( nymdE, yyyy, mm, dd )
+    IF ( PRESENT( nhmsE    ) ) CALL MAPL_PackTime( nhmsE, h,    m,  s  )
+
+    IF ( PRESENT( advCount ) ) advCount = count
+ 
+    !=======================================================================
+    ! SDE 2017-01-05: The following calls must be kept as a single block,
+    ! or the wrong date/time elements will be returned (the yyyy/mm/dd    
+    ! etc variables are re-used). Specifically, the output variables must
+    ! be set now, before the variables are re-used.
+    !=======================================================================
+    ! Start of current-time block
+    !=======================================================================
+    ! Get current-time fields from the time object
+    CALL ESMF_TimeGet( currTime, yy=yyyy, mm=mm, dd=dd, dayOfYear=doy, &
+                                 h=h,     m=m,   s=s,   __RC__ )
+ 
+    ! Save packed fields for return
+    IF ( PRESENT( nymd     ) ) CALL MAPL_PackTime( nymd, yyyy, mm, dd )
+    IF ( PRESENT( nhms     ) ) CALL MAPL_PackTime( nhms, h,    m,  s  )
+
+    ! Save the various extacted current-time fields for return
+    IF ( PRESENT( year     ) ) year     = yyyy
+    IF ( PRESENT( month    ) ) month    = mm
+    IF ( PRESENT( day      ) ) day      = dd
+    IF ( PRESENT( dayOfYr  ) ) dayOfYr  = doy
+    IF ( PRESENT( hour     ) ) hour     = h
+    IF ( PRESENT( minute   ) ) minute   = m
+    IF ( PRESENT( second   ) ) second   = s
+    IF ( PRESENT( utc      ) ) utc      = ( DBLE( h )        ) + & 
+                                          ( DBLE( m )/60d0   ) + &
+                                          ( DBLE( s )/3600d0 )
+
+    !=======================================================================
+    ! End of current-time block
+    !=======================================================================
+
+    CALL ESMF_TimeGet( startTime, yy=yyyy, mm=mm, dd=dd, dayOfYear=doy, &
+                                 h=h,     m=m,   s=s,   __RC__ )
+
+    ! Save fields for return
+    IF ( PRESENT( nymdB    ) ) CALL MAPL_PackTime( nymdB, yyyy, mm, dd )
+    IF ( PRESENT( nhmsB    ) ) CALL MAPL_PackTime( nhmsB, h,    m,  s  )
+
+    CALL ESMF_TimeGet( stopTime, yy=yyyy, mm=mm, dd=dd, dayOfYear=doy, &
+                                 h=h,     m=m,   s=s,   __RC__ )
+
+    ! Save fields for return
+    IF ( PRESENT( nymdE    ) ) CALL MAPL_PackTime( nymdE, yyyy, mm, dd )
+    IF ( PRESENT( nhmsE    ) ) CALL MAPL_PackTime( nhmsE, h,    m,  s  )
+
+    IF ( PRESENT( advCount ) ) advCount = count
+#endif
 
     ! Compute elapsed time since start of simulation
     elapsedTime = currTime - startTime
@@ -4851,9 +4998,14 @@ CONTAINS
                           localCellCountPerDim  = locDims,             &
                           globalCellCountPerDim = globDims,            &
                           __RC__ )
-          
+
+#if defined( MODEL_GEOS )         
        ! Get the upper and lower bounds of on each PET
        CALL GridGetInterior( Grid, IL, IU, JL, JU, __RC__  )
+#else
+       ! Get the upper and lower bounds of on each PET using MAPL
+       CALL MAPL_GridGetInterior( Grid, IL, IU, JL, JU )
+#endif
 
     ENDIF
 
@@ -4912,6 +5064,7 @@ CONTAINS
 
   END SUBROUTINE Extract_
 !EOC
+#if defined( MODEL_GEOS )
 !------------------------------------------------------------------------------
 !     NASA/GSFC, Global Modeling and Assimilation Office, Code 910.1 and      !
 !          Harvard University Atmospheric Chemistry Modeling Group            !
@@ -7695,4 +7848,5 @@ CONTAINS
    end function monin_obukhov_length
 
 !EOC
+#endif
  END MODULE GEOSCHEMchem_GridCompMod
