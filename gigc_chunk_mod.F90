@@ -19,6 +19,9 @@ MODULE GIGC_Chunk_Mod
   USE MAPL_MOD
   USE ESMF
   USE ErrCode_Mod
+#if !defined( MODEL_GEOS )
+  USE Precision_Mod
+#endif
 
   IMPLICIT NONE
   PRIVATE
@@ -31,7 +34,9 @@ MODULE GIGC_Chunk_Mod
 !
 ! !PRIVATE MEMBER FUNCTIONS:
 !
+#if defined( MODEL_GEOS )
   PRIVATE :: SET_OZONOPAUSE
+#endif
 !
 ! !REVISION HISTORY:
 !  22 Jun 2009 - R. Yantosca & P. Le Sager - Chunkized & cleaned up.
@@ -68,10 +73,15 @@ CONTAINS
                               value_I_HI, value_J_HI,      value_IM,        &
                               value_JM,   value_LM,        value_IM_WORLD,  &
                               value_JM_WORLD,              value_LM_WORLD,  &
+#if defined( MODEL_GEOS )
                               value_LLSTRAT,                                &
+#endif
                               nymdB,      nhmsB,           nymdE,           &
                               nhmsE,      tsChem,          tsDyn,           &
                               lonCtr,     latCtr,          myPET,           &
+#if !defined( MODEL_GEOS )
+                              GC,         EXPORT,                           &
+#endif
                                                            Input_Opt,       &
                               State_Chm,  State_Diag,      State_Met,       &
                               HcoConfig,  HistoryConfig,   RC )
@@ -100,7 +110,9 @@ CONTAINS
     USE State_Diag_Mod,          ONLY : DgnState
     USE State_Met_Mod,           ONLY : MetState
     USE Strat_Chem_Mod,          ONLY : Init_Strat_Chem
+#if defined( MODEL_GEOS )
     USE Tendencies_Mod,          ONLY : TEND_INIT
+#endif
     USE Time_Mod,                ONLY : Set_Timesteps
     USE UCX_MOD,                 ONLY : INIT_UCX
     USE UnitConv_Mod,            ONLY : Convert_Spc_Units
@@ -119,7 +131,9 @@ CONTAINS
     INTEGER,            INTENT(IN)    :: value_IM_WORLD! # lons, global grid
     INTEGER,            INTENT(IN)    :: value_JM_WORLD! # lats, global grid
     INTEGER,            INTENT(IN)    :: value_LM_WORLD! # levs, global grid
+#if defined( MODEL_GEOS )
     INTEGER,            INTENT(IN)    :: value_LLSTRAT ! # strat. levs
+#endif
     INTEGER,            INTENT(IN)    :: myPET       ! Local PET
     INTEGER,            INTENT(IN)    :: nymdB       ! YYYYMMDD @ start of run
     INTEGER,            INTENT(IN)    :: nhmsB       ! hhmmss   @ start of run
@@ -132,6 +146,10 @@ CONTAINS
 !
 ! !INPUT/OUTPUT PARAMETERS:
 !
+#if !defined( MODEL_GEOS )
+    TYPE(ESMF_State),    INTENT(INOUT), TARGET :: EXPORT ! Export state object
+    TYPE(ESMF_GridComp), INTENT(INOUT)         :: GC     ! Ref to this GridComp
+#endif
     TYPE(OptInput),     INTENT(INOUT) :: Input_Opt   ! Input Options object
     TYPE(ChmState),     INTENT(INOUT) :: State_Chm   ! Chemistry State object 
     TYPE(DgnState),     INTENT(INOUT) :: State_Diag  ! Diagnostics State object
@@ -197,6 +215,7 @@ CONTAINS
     ! Assume success
     RC = GC_SUCCESS
 
+#if defined( MODEL_GEOS )
     ! ckeller, 01/16/17
     Input_Opt%MAX_DIAG      = 1 
     Input_Opt%MAX_FAM       = 250
@@ -204,7 +223,7 @@ CONTAINS
     Input_Opt%LINOZ_NMONTHS = 12
     Input_Opt%LINOZ_NFIELDS = 7
     Input_Opt%RootCPU       = am_I_Root
-!-----
+#endif
 
     ! Initialize Input_Opt fields to zeros or equivalent
     CALL Set_Input_Opt( am_I_Root, Input_Opt, RC )
@@ -213,6 +232,18 @@ CONTAINS
     ! Read GEOS-Chem input file at very beginning of simulation
     CALL Read_Input_File( am_I_Root, Input_Opt, RC )
     ASSERT_(RC==GC_SUCCESS)
+
+#if !defined( MODEL_GEOS )
+    ! In the ESMF/MPI environment, we can get the total overhead ozone
+    ! either from the met fields (GIGCsa) or from the Import State (GEOS-5)
+    Input_Opt%USE_O3_FROM_MET = .TRUE.
+    
+    ! Read LINOZ climatology
+    IF ( Input_Opt%LLINOZ ) THEN
+       CALL Linoz_Read( am_I_Root, Input_Opt, RC ) 
+       ASSERT_(RC==GC_SUCCESS)
+    ENDIF
+#endif
 
     ! Allocate all lat/lon arrays including CMN_Size_Mod parameters
     CALL GC_Allocate_All( am_I_Root      = am_I_Root,                     &
@@ -227,7 +258,9 @@ CONTAINS
                           value_IM_WORLD = value_IM_WORLD,                &
                           value_JM_WORLD = value_JM_WORLD,                &
                           value_LM_WORLD = value_LM_WORLD,                &
+#if defined( MODEL_GEOS )
                           value_LLSTRAT  = value_LLSTRAT,                 &
+#endif
                           RC             = RC              )            
     ASSERT_(RC==GC_SUCCESS)
 
@@ -262,14 +295,10 @@ CONTAINS
                                           Input_Opt%TS_CONV ),           &
                         Diagnos    = Input_Opt%TS_DIAG         )
 
+    ! Initialize derived-type objects for met, chem, and diag
     CALL GC_Init_StateObj( am_I_Root, HistoryConfig%DiagList, Input_Opt, &
                            State_Chm, State_Diag, State_Met, RC )
     ASSERT_(RC==GC_SUCCESS)
-
-    ! Make sure to reset I0 and J0 in grid_mod.F90 with
-    ! the values carried in the Input Options object
-    CALL Set_xOffSet( Input_Opt%NESTED_I0 )
-    CALL Set_yOffSet( Input_Opt%NESTED_J0 )
 
     ! Initialize other GEOS-Chem modules
     CALL GC_Init_Extra( am_I_Root, HistoryConfig%DiagList, Input_Opt,    &
@@ -300,6 +329,14 @@ CONTAINS
        ASSERT_(RC==GC_SUCCESS)
     ENDIF
 
+#if !defined( MODEL_GEOS )
+    ! Allocate array of overhead O3 columns for TOMS if chemistry is on
+    IF ( Input_Opt%LCHEM ) THEN
+       CALL Init_TOMS( am_I_Root, Input_Opt, RC )
+       ASSERT_(RC==GC_SUCCESS)
+    ENDIF
+#endif
+
     ! Initialize HEMCO
     CALL EMISSIONS_INIT ( am_I_Root, Input_Opt, State_Met, State_Chm, RC, &
                           HcoConfig=HcoConfig )
@@ -313,7 +350,9 @@ CONTAINS
 
     ENDIF
 
+#if defined( MODEL_GEOS )
     !IF ( Input_Opt%LSCHEM .AND. Input_Opt%LLSTRAT < value_LM ) THEN
+#endif
      IF ( Input_Opt%LSCHEM ) THEN
        CALL INIT_STRAT_CHEM( am_I_Root, Input_Opt, State_Chm, & 
                              State_Met, RC )
@@ -324,6 +363,7 @@ CONTAINS
     ! Diagnostics and tendencies 
     !-------------------------------------------------------------------------
 
+#if defined( MODEL_GEOS )
     ! The GEOS-Chem diagnostics list, stored in HistoryConfig, is initialized 
     ! during GIGC_INIT_SIMULATION, and corresponding arrays in State_Diag are 
     ! allocated accordingly when initializing State_Diag. Here, we thus 
@@ -331,6 +371,14 @@ CONTAINS
     ! yet (ckeller, 11/29/17). 
     CALL Tend_Init ( am_I_Root, Input_Opt, State_Met, State_Chm, RC ) 
     ASSERT_(RC==GC_SUCCESS)
+#endif
+
+#if !defined( MODEL_GEOS )
+    ! Convert species units to internal state units (v/v dry)
+    CALL Convert_Spc_Units( am_I_Root, Input_Opt, State_Met, &
+                            State_Chm, 'v/v dry', RC )
+    ASSERT_(RC==GC_SUCCESS)
+#endif
 
     ! Return success
     RC = GC_Success
@@ -1037,7 +1085,10 @@ CONTAINS
 !
 ! !USES:
 !
-    USE Input_Opt_Mod,         ONLY : OptInput!, Cleanup_Input_Opt
+    USE Input_Opt_Mod,         ONLY : OptInput
+#if !defined( MODEL_GEOS )
+    USE Input_Opt_Mod,         ONLY : Cleanup_Input_Opt
+#endif
     USE State_Chm_Mod,         ONLY : ChmState, Cleanup_State_Chm
     USE State_Met_Mod,         ONLY : MetState, Cleanup_State_Met
     USE HCOI_GC_MAIN_MOD,      ONLY : HCOI_GC_FINAL
@@ -1086,6 +1137,21 @@ CONTAINS
        ENDIF
     ENDIF
 
+#if !defined( MODEL_GEOS )
+    ! Deallocate fields of the Input Options object
+    ! The call to Cleanup_Input_Opt causes a memory leak error. Comment
+    ! for now (ckeller, 11/29/16).
+    ! Does this still cause a memory leak? (ewl, 12/14/18)
+     CALL Cleanup_Input_Opt( am_I_Root, Input_Opt, RC )
+    IF ( am_I_Root ) THEN
+       IF ( RC == GC_SUCCESS ) THEN
+          write(*,'(a)') 'Chem::Input_Opt Finalize... OK.'
+       ELSE
+          write(*,'(a)') 'Chem::Input_Opt Finalize... FAILURE.'
+       ENDIF
+    ENDIF
+#endif
+
     ! Deallocate fields of the Chemistry State object
     CALL Cleanup_State_Chm( am_I_Root, State_Chm, RC )
     IF ( am_I_Root ) THEN
@@ -1118,6 +1184,7 @@ CONTAINS
 
   END SUBROUTINE GIGC_Chunk_Final
 !EOC
+#if defined( MODEL_GEOS )
 !------------------------------------------------------------------------------
 !          Harvard University Atmospheric Chemistry Modeling Group            !
 !------------------------------------------------------------------------------
@@ -1228,488 +1295,5 @@ CONTAINS
 
   END SUBROUTINE SET_OZONOPAUSE
 !EOC
-!------------------------------------------------------------------------------
-!          Harvard University Atmospheric Chemistry Modeling Group            !
-!------------------------------------------------------------------------------
-!BOP
-!
-! !IROUTINE: StateDiag2Export 
-!
-! !DESCRIPTION: 
-!\\
-!\\
-! !INTERFACE:
-!
-  SUBROUTINE StateDiag2Export ( am_I_Root,  Input_Opt, State_Met, State_Chm, &
-                                State_Diag, Diag_List, EXPORT,    IsChemTime, &
-                                DoDryDep,   Phase, IM, JM, LM, RC )
-!
-! !USES:
-!
-    USE ErrCode_Mod
-    USE Precision_Mod
-    USE Input_Opt_Mod,   ONLY : OptInput
-    USE State_Met_Mod,   ONLY : MetState
-    USE State_Chm_Mod,   ONLY : ChmState, Ind_
-    USE State_Diag_Mod,  ONLY : DgnState
-    USE DiagList_Mod,    ONLY : DgnList 
-    USE DIAG_MOD,        ONLY : AD21
-    USE DIAG_OH_MOD,     ONLY : OH_MASS, AIR_MASS 
-!
-! !INPUT PARAMETERS:
-!
-    LOGICAL,          INTENT(IN)    :: am_I_Root     ! Are we on the root CPU?
-    TYPE(OptInput),   INTENT(IN)    :: Input_Opt     ! Input Options object
-    LOGICAL,          INTENT(IN)    :: IsChemTime    ! Chemistry time? 
-    LOGICAL,          INTENT(IN)    :: DoDryDep      ! Do dry deposition? 
-    INTEGER,          INTENT(IN)    :: Phase         ! Run phase 
-    INTEGER,          INTENT(IN)    :: IM, JM, LM    ! Grid dimensions 
-!
-! !INPUT/OUTPUT PARAMETERS:
-!
-    TYPE(MetState),   INTENT(INOUT) :: State_Met     ! Meteorology State object
-    TYPE(ChmState),   INTENT(INOUT) :: State_Chm     ! Chem state object
-    TYPE(DgnState),   INTENT(INOUT) :: State_Diag    ! Diagnostics state object
-    TYPE(DgnList),    INTENT(INOUT) :: Diag_List     ! Diagnostics List 
-    TYPE(ESMF_State), INTENT(INOUT) :: Export
-!
-! !OUTPUT PARAMETERS:
-!
-    INTEGER,          INTENT(OUT)   :: RC            ! Success or failure
-!
-! !REMARKS:
-! 
-! !REVISION HISTORY: 
-!  22 Nov 2017 - C. Keller   - Initial version
-!EOP
-!------------------------------------------------------------------------------
-!BOC
-!
-! !LOCAL VARIABLES:
-!
-    INTEGER                    :: I, L, N
-    CHARACTER(LEN=  3)         :: III
-    CHARACTER(LEN=255)         :: DiagName
-    REAL, POINTER              :: Ptr2D(:,:)  
-    REAL, POINTER              :: Ptr3D(:,:,:)  
-    REAL(f4), POINTER          :: PM25ptr(:,:,:)
-    REAL, ALLOCATABLE, TARGET  :: Diag2D(:,:)
-
-    INTEGER                    :: STATUS
-    CHARACTER(LEN=ESMF_MAXSTR) :: Iam
-
-    !=======================================================================
-    ! StateDiag2Export begins here 
-    !=======================================================================
-
-    ! Error trap
-    Iam = 'StateDiag2Export (gigc_chunk_mod.F90)'
- 
-    ! Assume success
-    RC = GC_SUCCESS
-
-    ! DryDepVel
-    IF ( ASSOCIATED(State_Diag%DryDepVel) .AND. DoDryDep ) THEN
-       DO I = 1, State_Chm%nDryDep
-          N        = State_Chm%Map_DryDep(I)
-          DiagName = 'DryDepVel_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-          CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr2D) ) THEN
-             Ptr2D(:,:) = State_Diag%DryDepVel(:,:,I)
-             Ptr2D => NULL()
-          END IF
-       ENDDO
-    ENDIF
-
-!    ! Aerodynamic resistance --> now computed in GCC_GridCompMod.F90
-!    IF ( ASSOCIATED(State_Diag%DryDepRa2m) .AND. DoDryDep ) THEN
-!       DiagName = 'DryDepRa2m_GCC'
-!       CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-!       IF ( ASSOCIATED(Ptr2D) ) THEN
-!          Ptr2D(:,:) = State_Diag%DryDepRa2m(:,:)
-!          Ptr2D => NULL()
-!       END IF
-!    ENDIF
-!    IF ( ASSOCIATED(State_Diag%DryDepRa10m) .AND. DoDryDep ) THEN
-!       DiagName = 'DryDepRa10m_GCC'
-!       CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-!       IF ( ASSOCIATED(Ptr2D) ) THEN
-!          Ptr2D(:,:) = State_Diag%DryDepRa10m(:,:)
-!          Ptr2D => NULL()
-!       END IF
-!    ENDIF
-
-    ! DryDepFlux_Mix
-    IF ( ASSOCIATED(State_Diag%DryDepMix) .AND. DoDryDep ) THEN
-       DO I = 1, State_Chm%nDryDep
-          N        = State_Chm%Map_DryDep(I)
-          DiagName = 'DryDep_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-          CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr2D) ) THEN
-             Ptr2D(:,:) = State_Diag%DryDep(:,:,I)
-             Ptr2D => NULL()
-          END IF
-       ENDDO
-    ENDIF
-
-    ! Monin Obukhov length
-    IF ( ASSOCIATED(State_Diag%MoninObukhov) ) THEN
-       DiagName = 'MoninObukhov'
-       CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-       IF ( ASSOCIATED(Ptr2D) ) THEN
-          Ptr2D(:,:) = State_Diag%MoninObukhov
-          Ptr2D => NULL()
-       ENDIF
-    ENDIF
-
-    ! Wet deposition
-    IF ( Phase /= 1 ) THEN
-       IF ( ASSOCIATED(State_Diag%WetLossLS) .OR. &
-            ASSOCIATED(State_Diag%WetLossConv)     ) THEN
-          DO I = 1, State_Chm%nWetDep
-             N = State_Chm%Map_WetDep(I)
-             ! Large-scale washout
-             DiagName = 'WetLossLS_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-             CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-             IF ( ASSOCIATED(Ptr2D) ) THEN
-                Ptr2D(:,:) = SUM(State_Diag%WetLossLS(:,:,:,I),DIM=3)
-                Ptr2D(:,:) = Ptr2D(:,:) / State_Met%AREA_M2(:,:,1)
-                Ptr2D => NULL()
-             END IF
-             DiagName = 'WetLossLS3D_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-             CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-             IF ( ASSOCIATED(Ptr3D) ) THEN
-                DO L = 1,LM
-                   Ptr3D(:,:,LM-L+1) = State_Diag%WetLossLS(:,:,L,I) / State_Met%AREA_M2(:,:,1)
-                ENDDO
-                Ptr3D => NULL()
-             END IF
-             ! Convective washout
-             DiagName = 'WetLossConv_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-             CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-             IF ( ASSOCIATED(Ptr2D) ) THEN
-                Ptr2D(:,:) = SUM(State_Diag%WetLossConv(:,:,:,I),DIM=3)
-                Ptr2D(:,:) = Ptr2D(:,:) / State_Met%AREA_M2(:,:,1)
-                Ptr2D => NULL()
-             END IF
-             DiagName = 'WetLossConv3D_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-             CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-             IF ( ASSOCIATED(Ptr3D) ) THEN
-                DO L = 1,LM
-                   Ptr3D(:,:,LM-L+1) = State_Diag%WetLossConv(:,:,L,I) / State_Met%AREA_M2(:,:,1)
-                ENDDO
-                Ptr3D => NULL()
-             END IF
-             ! Total washout
-             DiagName = 'WetLossTot_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-             CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-             IF ( ASSOCIATED(Ptr2D) ) THEN
-                Ptr2D(:,:) = SUM(State_Diag%WetLossConv(:,:,:,I),DIM=3) &
-                           + SUM(State_Diag%WetLossLS  (:,:,:,I),DIM=3)
-                Ptr2D(:,:) = Ptr2D(:,:) / State_Met%AREA_M2(:,:,1)
-                Ptr2D => NULL()
-             END IF
-             DiagName = 'WetLossTot3D_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-             CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-             IF ( ASSOCIATED(Ptr3D) ) THEN
-                DO L = 1,LM
-                   Ptr3D(:,:,LM-L+1) = ( State_Diag%WetLossConv(:,:,L,I) + &
-                                         State_Diag%WetLossLS  (:,:,L,I) ) / State_Met%AREA_M2(:,:,1)
-                ENDDO
-                Ptr3D => NULL()
-             END IF
-          ENDDO
-       ENDIF
-       ! Reset diagnostics
-       !!!State_Diag%WetLossLS(:,:,:,:) = 0.0_f4
-    ENDIF
-
-!    ! Wet deposition in convection (collapse to 2D)
-!    IF ( Phase /= 2 ) THEN
-!       IF ( ASSOCIATED(State_Diag%WetLossConv) ) THEN
-!          DO I = 1, State_Chm%nWetDep
-!             N = State_Chm%Map_WetDep(I)
-!             DiagName = 'WetLossConv_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-!             CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-!             IF ( ASSOCIATED(Ptr2D) ) THEN
-!                Ptr2D(:,:) = SUM(State_Diag%WetLossConv(:,:,:,I),DIM=3)
-!                Ptr2D(:,:) = Ptr2D(:,:) / State_Met%AREA_M2(:,:,1)
-!                Ptr2D => NULL()
-!             END IF
-!             DiagName = 'WetLossConv3D_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-!             CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-!             IF ( ASSOCIATED(Ptr3D) ) THEN
-!                DO L = 1,LM
-!                   Ptr3D(:,:,LM-L+1) = State_Diag%WetLossConv(:,:,L,I) / State_Met%AREA_M2(:,:,1)
-!                ENDDO
-!                Ptr3D => NULL()
-!             END IF
-!          ENDDO
-!       ENDIF
-!       ! Reset diagnostics
-!       !!!State_Diag%WetLossConv(:,:,:,:) = 0.0_f4
-!    ENDIF
-!
-!    ! Wet deposition in large scale precip/washout(collapse to 2D)
-!    IF ( Phase /= 1 ) THEN
-!       IF ( ASSOCIATED(State_Diag%WetLossLS) ) THEN
-!          DO I = 1, State_Chm%nWetDep
-!             N = State_Chm%Map_WetDep(I)
-!             DiagName = 'WetLossLS_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-!             CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-!             IF ( ASSOCIATED(Ptr2D) ) THEN
-!                Ptr2D(:,:) = SUM(State_Diag%WetLossLS(:,:,:,I),DIM=3)
-!                Ptr2D(:,:) = Ptr2D(:,:) / State_Met%AREA_M2(:,:,1)
-!                Ptr2D => NULL()
-!             END IF
-!             DiagName = 'WetLossLS3D_'//TRIM(State_Chm%SpcData(N)%Info%Name)
-!             CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-!             IF ( ASSOCIATED(Ptr3D) ) THEN
-!                DO L = 1,LM
-!                   Ptr3D(:,:,LM-L+1) = State_Diag%WetLossLS(:,:,L,I) / State_Met%AREA_M2(:,:,1)
-!                ENDDO
-!                Ptr3D => NULL()
-!             END IF
-!          ENDDO
-!       ENDIF
-!       ! Reset diagnostics
-!       !!!State_Diag%WetLossLS(:,:,:,:) = 0.0_f4
-!    ENDIF
-
-    ! Strat. aerosol surface densities 
-    IF ( ASSOCIATED(State_Diag%AerSurfAreaDust) ) THEN
-       DiagName = 'AerSurfAreaDust'
-       CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-       IF ( ASSOCIATED(Ptr3D) ) THEN
-          Ptr3D(:,:,LM:1:-1) = State_Diag%AerSurfAreaDust
-          Ptr3D => NULL()
-       ENDIF
-    ENDIF
-    IF ( ASSOCIATED(State_Diag%AerSurfAreaSLA) ) THEN
-       DiagName = 'AerSurfAreaStratLiquid'
-       CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-       ! testing only
-       IF ( ASSOCIATED(Ptr3D) ) THEN
-          Ptr3D(:,:,LM:1:-1) = State_Diag%AerSurfAreaSLA
-          Ptr3D => NULL()
-       ENDIF
-    ENDIF
-    IF ( ASSOCIATED(State_Diag%AerSurfAreaPSC) ) THEN
-       DiagName = 'AerSurfAreaPolarStratCloud'
-       CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-       IF ( ASSOCIATED(Ptr3D) ) THEN
-          Ptr3D(:,:,LM:1:-1) = State_Diag%AerSurfAreaPSC
-          Ptr3D => NULL()
-       ENDIF
-    ENDIF
-    IF ( ASSOCIATED(State_Diag%AerNumDenSLA) ) THEN
-       DiagName = 'AerNumDensityStratLiquid'
-       CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-       IF ( ASSOCIATED(Ptr3D) ) THEN
-          Ptr3D(:,:,LM:1:-1) = State_Diag%AerNumDenSLA
-          Ptr3D => NULL()
-       ENDIF
-    ENDIF
-    IF ( ASSOCIATED(State_Diag%AerNumDenPSC) ) THEN
-       DiagName = 'AerNumDensityStratParticulate'
-       CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-       IF ( ASSOCIATED(Ptr3D) ) THEN
-          Ptr3D(:,:,LM:1:-1) = State_Diag%AerNumDenPSC
-          Ptr3D => NULL()
-       ENDIF
-    ENDIF
-
-    ! PM25
-    DO I = 1,8
-       SELECT CASE ( I )
-          CASE ( 1 )
-             DiagName =  'PM25'
-             PM25ptr  => State_Diag%PM25
-          CASE ( 2 )
-             DiagName =  'PM25ni'
-             PM25ptr  => State_Diag%PM25ni
-          CASE ( 3 )
-             DiagName =  'PM25su'
-             PM25ptr  => State_Diag%PM25su
-          CASE ( 4 )
-             DiagName =  'PM25oc'
-             PM25ptr  => State_Diag%PM25oc
-          CASE ( 5 )
-             DiagName =  'PM25bc'
-             PM25ptr  => State_Diag%PM25bc
-          CASE ( 6 )
-             DiagName =  'PM25ss'
-             PM25ptr  => State_Diag%PM25ss
-          CASE ( 7 )
-             DiagName =  'PM25du'
-             PM25ptr  => State_Diag%PM25du
-          CASE ( 8 )
-             DiagName =  'PM25soa'
-             PM25ptr  => State_Diag%PM25soa
-          CASE DEFAULT 
-             DiagName =  'dummy'
-             PM25ptr  => NULL() 
-       END SELECT
-       IF ( ASSOCIATED ( PM25ptr ) ) THEN   
-          CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr3D) ) THEN
-             Ptr3D(:,:,LM:1:-1) = PM25ptr(:,:,:)
-             Ptr3D   => NULL()
-             PM25ptr => NULL()
-          ENDIF
-       ENDIF
-    ENDDO
-
-    ! OH concentration after chemistry
-    IF ( Input_Opt%LCHEM .AND. IsChemTime ) THEN
-       IF ( ASSOCIATED(State_Diag%OHconcAfterChem) ) THEN
-          DiagName = 'OHconcAfterChem'
-          CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr3D) ) THEN
-             Ptr3D = State_Diag%OHconcAfterChem(:,:,LM:1:-1)
-          ENDIF
-       ENDIF
-       IF ( ASSOCIATED(State_Diag%O3concAfterChem) ) THEN
-          DiagName = 'O3concAfterChem'
-          CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr3D) ) THEN
-             Ptr3D = State_Diag%O3concAfterChem(:,:,LM:1:-1)
-          ENDIF
-       ENDIF
-       IF ( ASSOCIATED(State_Diag%RO2concAfterChem) ) THEN
-          DiagName = 'RO2concAfterChem'
-          CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr3D) ) THEN
-             Ptr3D = State_Diag%RO2concAfterChem(:,:,LM:1:-1)
-          ENDIF
-       ENDIF
-    ENDIF
-
-    ! CH4 pseudo flux to balance chemistry
-    DiagName = 'CH4pseudoFlux'
-    CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-    IF ( ASSOCIATED(Ptr2D) ) THEN
-       Ptr2D = State_Diag%CH4pseudoFlux
-    ENDIF
-
-    ! AOD 
-    !IF ( ND21 > 0 .AND. Input_Opt%LCHEM .AND. IsChemTime ) THEN
-    IF ( Input_Opt%ND21 > 0 ) THEN
-       ALLOCATE( Diag2D(IM,JM) )
-       DO I = 1,14
-          SELECT CASE ( I )
-             CASE ( 1 )
-                DiagName    = 'AOD550_CLOUD'
-                Diag2D(:,:) = SUM(State_Met%OPTD,DIM=3)
-             CASE ( 2 )
-                DiagName    = 'AOD550_DUST'
-                Diag2D(:,:) = SUM(AD21(:,:,:,4),DIM=3)
-             CASE ( 3 )
-                DiagName    = 'AOD550_SULFATE'
-                Diag2D(:,:) = SUM(AD21(:,:,:,6),DIM=3)
-             CASE ( 4 )
-                DiagName    = 'AOD550_BC'
-                Diag2D(:,:) = SUM(AD21(:,:,:,9),DIM=3)
-             CASE ( 5 )
-                DiagName    = 'AOD550_OC'
-                Diag2D(:,:) = SUM(AD21(:,:,:,12),DIM=3)
-             CASE ( 6 )
-                DiagName    = 'AOD550_SALA'
-                Diag2D(:,:) = SUM(AD21(:,:,:,15),DIM=3)
-             CASE ( 7 )
-                DiagName    = 'AOD550_SALC'
-                Diag2D(:,:) = SUM(AD21(:,:,:,18),DIM=3)
-             CASE ( 8 )
-                DiagName    = 'AOD550_DST1'
-                Diag2D(:,:) = SUM(AD21(:,:,:,21),DIM=3)
-             CASE ( 9 )
-                DiagName    = 'AOD550_DST2'
-                Diag2D(:,:) = SUM(AD21(:,:,:,22),DIM=3)
-             CASE ( 10 )
-                DiagName    = 'AOD550_DST3'
-                Diag2D(:,:) = SUM(AD21(:,:,:,23),DIM=3)
-             CASE ( 11 )
-                DiagName    = 'AOD550_DST4'
-                Diag2D(:,:) = SUM(AD21(:,:,:,24),DIM=3)
-             CASE ( 12 )
-                DiagName    = 'AOD550_DST5'
-                Diag2D(:,:) = SUM(AD21(:,:,:,25),DIM=3)
-             CASE ( 13 )
-                DiagName    = 'AOD550_DST6'
-                Diag2D(:,:) = SUM(AD21(:,:,:,26),DIM=3)
-             CASE ( 14 )
-                DiagName    = 'AOD550_DST7'
-                Diag2D(:,:) = SUM(AD21(:,:,:,27),DIM=3)
-             CASE DEFAULT
-                DiagName    = 'AOD550_DUMMY'
-          END SELECT
-          CALL MAPL_GetPointer( Export, Ptr2D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr2D) ) THEN
-             Ptr2D(:,:) = Diag2D
-             Ptr2D => NULL()
-          END IF
-       ENDDO
-       DEALLOCATE( Diag2D )
-    ENDIF
-
-    ! Some met variables 
-    DiagName = 'GCC_AIRNUMDEN'
-    CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-    IF ( ASSOCIATED(Ptr3D) ) THEN
-       ! AIRNUMDEN is in molec cm-3, convert to mol cm-3
-       Ptr3D = State_Met%AIRNUMDEN(:,:,LM:1:-1)/6.022e23
-    ENDIF
-
-    DiagName = 'GCC_AIRVOL'
-    CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-    IF ( ASSOCIATED(Ptr3D) ) THEN
-       ! AIRVOL is [cm3], convert to km3
-       Ptr3D = State_Met%AIRVOL(:,:,LM:1:-1)/1.0e15
-    ENDIF
-
-    ! Reaction rates
-    IF ( Input_Opt%LCHEM .AND. IsChemTime ) THEN
-    IF ( Input_Opt%NN_RxnRates > 0 ) THEN
-       DO I = 1, Input_Opt%NN_RxnRates
-          WRITE(III,'(i3.3)') Input_Opt%RxnRates_IDs(I)
-          DiagName = 'GCC_RR_'//TRIM(III)
-          CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOK=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr3D) ) THEN
-             Ptr3D = State_Diag%RxnRates(:,:,LM:1:-1,I)
-          ENDIF 
-       ENDDO
-    ENDIF
-    ENDIF
-
-    ! Reaction rate constants
-    IF ( Input_Opt%LCHEM .AND. IsChemTime ) THEN
-    IF ( Input_Opt%NN_RxnRconst > 0 ) THEN
-       DO I = 1, Input_Opt%NN_RxnRconst
-          WRITE(III,'(i3.3)') Input_Opt%RxnRconst_IDs(I)
-          DiagName = 'GCC_RC_'//TRIM(III)
-          CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOK=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr3D) ) THEN
-             Ptr3D = State_Diag%RxnRconst(:,:,LM:1:-1,I)
-     
-          ENDIF 
-       ENDDO
-    ENDIF
-    ENDIF
-
-    ! J-values 
-    IF ( Input_Opt%LCHEM .AND. IsChemTime ) THEN
-    IF ( Input_Opt%NN_Jvals > 0 ) THEN
-       DO I = 1, Input_Opt%NN_Jvals
-          WRITE(III,'(i3.3)') Input_Opt%Jval_IDs(I)
-          DiagName = 'GCC_JVAL_'//TRIM(III)
-          CALL MAPL_GetPointer( Export, Ptr3D, TRIM(DiagName), NotFoundOk=.TRUE., __RC__ )
-          IF ( ASSOCIATED(Ptr3D) ) THEN
-             Ptr3D = State_Diag%JvalIndiv(:,:,LM:1:-1,I)
-          ENDIF 
-       ENDDO
-    ENDIF
-    ENDIF
-
-  END SUBROUTINE StateDiag2Export
-!EOC
+#endif
 END MODULE GIGC_Chunk_Mod
