@@ -19,11 +19,16 @@
 ! (for convection).
 !\\
 !\\
-! This gridded component contains two run phases: Phase 1 executes
-! dry deposition and emissions and should be called before surface 
-! processes/turbulence. Phase 2 performs chemistry and wet deposition,
-! and should be called after turbulence. Convection and PBL mixing are
-! done in phase 1 and phase 2, respectively (if selected)..
+! This gridded component contains three run phases: 
+!
+!  -1: Phase -1 is the standard setting in GCHP. It executes all components. 
+!      Phase is -1 if number of phases is set to 1 in config file GCHP.rc.
+!
+!   1: Phase 1 is used in GEOS-5. It executes convection, dry deposition,
+!      and emissions and should be called before surface processes/turbulence. 
+! 
+!   2: Phase 2 is used in GEOS-5. It performs chemistry, and wet deposition, 
+!      and should be called after turbulence.
 !\\
 !\\
 ! All GEOS-Chem species are stored in the GEOSCHEMchem internal state object
@@ -36,7 +41,11 @@
 !\\
 ! !INTERFACE:
 !
+#if defined( MODEL_GEOS )
 MODULE GEOSCHEMchem_GridCompMod
+#else
+MODULE Chem_GridCompMod
+#endif
 !
 ! !USES:
 !
@@ -48,7 +57,9 @@ MODULE GEOSCHEMchem_GridCompMod
   USE Input_Opt_Mod                                  ! Input Options obj
   USE GIGC_Chunk_Mod                                 ! GIGC IRF methods
   USE GIGC_HistoryExports_Mod
-!  USE GIGC_ProviderServices_Mod                     ! EWL: do not use yet
+#if !defined( MODEL_GEOS )
+  USE GIGC_ProviderServices_Mod
+#endif
   USE ErrCode_Mod                                    ! Error numbers
   USE State_Chm_Mod                                  ! Chemistry State obj
   USE State_Diag_Mod                                 ! Diagnostics State obj
@@ -56,12 +67,12 @@ MODULE GEOSCHEMchem_GridCompMod
   USE Species_Mod,   ONLY : Species
   USE Time_Mod,      ONLY : ITS_A_NEW_DAY, ITS_A_NEW_MONTH
 
-  USE MAPL_ConstantsMod                              ! Doesn't seem to be used. Needed?
-  USE Chem_Mod                                       ! Chemistry Base Class (chem_mie?)
-  USE Chem_GroupMod                                  ! For family transport
-  USE ERROR_Mod,       ONLY : mpiComm
+#if defined( MODEL_GEOS )
+  USE MAPL_ConstantsMod                   ! Doesn't seem to be used. Needed?
+  USE Chem_Mod                            ! Chemistry Base Class (chem_mie?)
+  USE ERROR_Mod,     ONLY : mpiComm
   USE PHYSCONSTANTS
-  USE DiagList_Mod,    ONLY : DgnList
+#endif
 
   IMPLICIT NONE
   PRIVATE
@@ -78,9 +89,11 @@ MODULE GEOSCHEMchem_GridCompMod
   PRIVATE  :: Run_           ! Run method
   PRIVATE  :: Finalize_      ! Finalize method
   PRIVATE  :: Extract_       ! Get values from ESMF
+#if defined( MODEL_GEOS )
   PRIVATE  :: Roundoff       ! Truncates a number
   PRIVATE  :: Print_Mean_OH  ! Mean OH lifetime
   PRIVATE  :: GlobalSum      ! Sums across PETs
+#endif
 !
 ! !PRIVATE TYPES:
 !
@@ -96,11 +109,21 @@ MODULE GEOSCHEMchem_GridCompMod
   END TYPE GEOSCHEM_Wrap
 
   ! For passing from internal state to Chm_State and vice versa
+#if defined( MODEL_GEOS )
   TYPE Int2SpcMap
      CHARACTER(LEN=255)            :: Name
      INTEGER                       :: ID
      REAL, POINTER                 :: Internal(:,:,:) => NULL()
   END TYPE Int2SpcMap
+#else
+  ! SDE 2016-03-28: Assume that Int2Spc is held as v/v dry
+  TYPE Int2SpcMap
+     CHARACTER(LEN=255)            :: TrcName
+     INTEGER                       :: TrcID
+     REAL                          :: TCVV
+     REAL(ESMF_KIND_R8), POINTER   :: Internal(:,:,:) => NULL()
+  END TYPE Int2SpcMap
+#endif
 
   ! For mapping State_Chm%Tracers/Species arrays onto the internal state.
   TYPE(Int2SpcMap), POINTER        :: Int2Spc(:) => NULL()
@@ -110,13 +133,14 @@ MODULE GEOSCHEMchem_GridCompMod
   TYPE(MetState)                   :: State_Met      ! Meteorology state
   TYPE(ChmState)                   :: State_Chm      ! Chemistry state
   TYPE(DgnState)                   :: State_Diag     ! Diagnostics state 
+  TYPE(Species),          POINTER  :: ThisSpc => NULL()
   TYPE(HistoryConfigObj), POINTER  :: HistoryConfig
   TYPE(ConfigObj),        POINTER  :: HcoConfig
 
   ! Scalars
   INTEGER                          :: logLun         ! LUN for stdout logfile
   CHARACTER(LEN=ESMF_MAXSTR)       :: logFile        ! File for stdout redirect
-
+#if defined( MODEL_GEOS )
   ! Is GEOS-Chem the provider for AERO, RATS, and/or Analysis OX? 
   LOGICAL                          :: DoAERO
   LOGICAL                          :: DoRATS
@@ -131,10 +155,14 @@ MODULE GEOSCHEMchem_GridCompMod
   INTEGER                          :: ANAO3L4
   REAL                             :: ANAO3FR 
   CHARACTER(LEN=ESMF_MAXSTR)       :: ANAO3FILE
+#else
+  LOGICAL                          :: isProvider ! provider to AERO, RATS, ANOX?
+#endif
 
-  ! Number of run phases. Can be set in the resource file (default is 2).
+  ! Number of run phases, 1 or 2. Set in the rc file; else default is 2.
   INTEGER                          :: NPHASE
 
+#if defined( MODEL_GEOS )
   ! Flag to initialize species concentrations from external fields. Read 
   ! through GEOSCHEMchem_GridComp.rc. If true, initial species concentrations
   ! are read from an external file instead of taken from the internal state. 
@@ -205,11 +233,40 @@ MODULE GEOSCHEMchem_GridCompMod
 
   CHARACTER(LEN=15), PARAMETER :: COLLIST(8) = (/ 'NO2', 'O3',   'CH4', 'CO', &
                                                   'BrO', 'CH2O', 'SO2', 'IO'  /)
- 
+#endif 
+
   ! Pointers to import, export and internal state data. Declare them as 
   ! module variables so that we have to assign them only on first call.
+#if !defined( MODEL_GEOS )
+  ! NOTE: Any provider-related exports (e.g. H2O_TEND) are now handled within
+  ! gigc_providerservices_mod.F90. Pointers are manually declared there and
+  ! those declared in the .h file included below are not used. (ewl, 11/3/2017)
 # include "GEOSCHEMCHEM_DeclarePointer___.h"
+#else
+# include "GEOSCHEMCHEM_DeclarePointer___.h"
+#endif
 
+#if !defined( MODEL_GEOS )
+  ! Use archived convection fields?
+  ! If the attribute 'ARCHIVED_CONV' in the GEOS-Chem configuration file is set
+  ! to '1', GEOS-Chem will use archived convection fields, imported through
+  ! ExtData (ExtData must contain an entry for each of the pointers defined
+  ! below). These data fields are then passed to the GEOS-Chem meteorlogical 
+  ! state instead of the (instantaneous) fields imported from MOIST. The 
+  ! fields imported through ExtData must be named 'ARCHIVED_PFI_CN', 
+  ! 'ARCHIVED_PFL_CN', etc.
+  LOGICAL           :: ArchivedConv
+  REAL, POINTER     :: PTR_ARCHIVED_PFI_CN (:,:,:) => NULL()
+  REAL, POINTER     :: PTR_ARCHIVED_PFL_CN (:,:,:) => NULL()
+  REAL, POINTER     :: PTR_ARCHIVED_CNV_MFC(:,:,:) => NULL()
+  REAL, POINTER     :: PTR_ARCHIVED_CNV_MFD(:,:,:) => NULL()
+  REAL, POINTER     :: PTR_ARCHIVED_CNV_CVW(:,:,:) => NULL()
+  REAL, POINTER     :: PTR_ARCHIVED_DQRC   (:,:,:) => NULL()
+  REAL, POINTER     :: PTR_ARCHIVED_REV_CN (:,:,:) => NULL()
+  REAL, POINTER     :: PTR_ARCHIVED_T      (:,:,:) => NULL()
+#endif
+
+#if defined( MODEL_GEOS )
   ! -RATS:
   REAL, POINTER     :: CH4     (:,:,:) => NULL()
   REAL, POINTER     :: N2O     (:,:,:) => NULL()
@@ -248,6 +305,7 @@ MODULE GEOSCHEMchem_GridCompMod
   TYPE(Chem_Mie)     :: geoschemMieTable(2)
   INTEGER, PARAMETER :: instanceComputational = 1
   INTEGER, PARAMETER :: instanceData          = 2
+#endif
 !
 ! !REMARKS:
 !  Developed for GEOS-5 release Fortuna 2.0 and later.
@@ -255,6 +313,7 @@ MODULE GEOSCHEMchem_GridCompMod
 !  NOTES: 
 !  - The abbreviation "PET" stands for "Persistent Execution Thread". 
 !    It is a synomym for CPU.
+#if defined( MODEL_GEOS )
 !  - The internal state now holds all species in v/v
 !    dry air. For backwards compatibility, the internal
 !    state names can still use the tracer prefix, e.g.
@@ -270,6 +329,7 @@ MODULE GEOSCHEMchem_GridCompMod
 !  TODO:
 !  - Spin off HEMCO code (use HEMCO_GridComp instead)
 !  - Activate RCNTRL(3) in flexchem_mod
+#endif
 !
 ! !REVISION HISTORY:
 !  06 Dec 2009 - A. da Silva - Initial version
@@ -289,6 +349,7 @@ MODULE GEOSCHEMchem_GridCompMod
 !  17 Oct 2014 - C. Keller   - Various updates to fill provider fields.
 !  26 Nov 2014 - C. Keller   - Added H2O_HIST and O3_HIST. 
 !  22 Feb 2015 - C. Keller   - Now check if geoschemchem_import_rst exist
+#if defined( MODEL_GEOS )
 !  08 May 2015 - C. Keller   - Update on Int2Trc. Also added Int2Spc to make
 !                              sure that the internal state always contains the
 !                              most current species values. This is critical 
@@ -301,6 +362,16 @@ MODULE GEOSCHEMchem_GridCompMod
 !                              distinguish between tracers and species any more.
 !  07 Mar 2017 - C. Keller   - Species unit in internal state is now kg/kg total.
 !  21 Apr 2017 - C. Keller   - Update to v11-02.
+#else
+!  06 Jun 2016 - M. Yannetti - Added Get_Transport.
+!  19 Dec 2016 - M. Long     - Update for v11-01k
+!  01 Sep 2017 - E. Lundgren - Enable automation of GCHP diagnostics
+!  19 Sep 2017 - E. Lundgren - Remove Get_Transport
+!  02 Nov 2017 - E. Lundgren - Remove unused private functions roundoff, 
+!                              globalsum, and print_mean_oh
+!  06 Nov 2017 - E. Lundgren - Abstract provider services to new module
+!                              gigc_providerservices_mod.F90
+#endif
 !EOP
 !------------------------------------------------------------------------------
 !BOC
