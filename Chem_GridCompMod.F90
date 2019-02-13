@@ -1618,8 +1618,10 @@ CONTAINS
 !
     USE TIME_MOD,  ONLY : GET_TS_CHEM, GET_TS_EMIS
     USE TIME_MOD,  ONLY : GET_TS_DYN,  GET_TS_CONV
+#if defined( MODEL_GEOS )
     USE TENDENCIES_MOD, ONLY : Tend_CreateClass
     USE TENDENCIES_MOD, ONLY : Tend_Add
+#endif
 !
 ! !INPUT/OUTPUT PARAMETERS:
 !
@@ -1704,7 +1706,6 @@ CONTAINS
     ! Pointer arrays
     REAL(ESMF_KIND_R4),  POINTER :: lonCtr(:,:) ! Lon centers on this PET [rad]
     REAL(ESMF_KIND_R4),  POINTER :: latCtr(:,:) ! Lat centers on this PET [rad]
-    TYPE(MAPL_MetaComp), POINTER :: STATE
 
     INTEGER                      :: I, nFlds
     TYPE(ESMF_STATE)             :: INTSTATE 
@@ -1715,6 +1716,9 @@ CONTAINS
     ! GEOS-Chem. This variable is then passed to Input_Opt after 
     ! initialization (and CPU broadcasting) of all GEOS-Chem variables.
     LOGICAL                      :: haveImpRst
+
+#if defined( MODEL_GEOS )
+    TYPE(MAPL_MetaComp), POINTER :: STATE
 
     ! For AERO
     INTEGER                      :: J, GCID
@@ -1735,6 +1739,12 @@ CONTAINS
 
     ! Mie table updates
     INTEGER                      :: instance
+#else
+    INTEGER                      :: N, trcID
+    TYPE(ESMF_Time)              :: CurrTime    ! Current time of the ESMF clock
+    TYPE(MAPL_MetaComp), POINTER :: STATE => NULL()
+    REAL(ESMF_KIND_R8), POINTER  :: Ptr3D_R8(:,:,:) => NULL()
+#endif
 
     __Iam__('Initialize_')
 
@@ -1820,6 +1830,15 @@ CONTAINS
     !=======================================================================
     ! Open a log file on each PET where stdout will be redirected
     !=======================================================================
+
+#if !defined( MODEL_GEOS )
+    ! Check that the choice of LUN is valid
+    IF ((logLun.eq.5).or.(logLun.eq.6)) Then
+       WRITE(*,'(a,I5,a)') 'Invalid LUN (',logLun,') chosen for log output'
+       WRITE(*,'(a)'     ) 'An LUN other than 5 or 6 must be used'
+       ASSERT_(.FALSE.)
+    ENDIF
+#endif
 
     ! Replace tokens w/ PET # in the filename
     IF ( am_I_Root ) THEN
@@ -1958,8 +1977,10 @@ CONTAINS
                           State_Met = State_Met,  & ! Meteorology State obj
                           State_Chm = State_Chm,  & ! Chemistry State obj
                           State_Diag= State_Diag, & ! Diagnostics State obj
+#if defined( MODEL_GEOS )
                           value_LLSTRAT = value_LLSTRAT,    & ! # strat. levels 
                           HcoConfig = HcoConfig,  & ! HEMCO config obj 
+#endif
                           HistoryConfig = HistoryConfig, & ! History Config Obj
                           __RC__                 )
 
@@ -1971,8 +1992,18 @@ CONTAINS
     if ( am_I_Root ) Input_Opt%RootCPU = .true.
 
     ! It's now safe to store haveImpRst flag in Input_Opt
+#if defined( MODEL_GEOS )
     Input_Opt%haveImpRst = haveImpRst
+#else
+    ! GCHP only (can we remove haveImpRst entirely?):
+    ! SDE DEBUG 2017-01-01: Overwrite this? The Extract_ routine does not seem
+    ! to actually set this, and it being false results in everything being
+    ! thrown off by 1 timestep
+    haveImpRst = .True.
+    Input_Opt%haveImpRst = haveImpRst
+#endif
 
+#if defined( MODEL_GEOS )
     !=======================================================================
     ! If GEOS-Chem is the AERO provider, initialize the AERO bundle here.
     ! All GEOS-Chem tracers possibly being added to the AERO bundle are
@@ -2207,6 +2238,12 @@ CONTAINS
        CALL MAPL_GetPointer( INTSTATE, PTR_HCFC22, 'TRC_HCFC22', __RC__ )
        CALL MAPL_GetPointer( INTSTATE,    PTR_H2O, 'TRC_H2O',    __RC__ )
     ENDIF
+#else
+    IF ( isProvider ) THEN
+       CALL Provider_Initialize( am_I_Root, IM,       JM,     LM,  &
+                                 State_Chm, INTSTATE, EXPORT, __RC__ )
+    ENDIF
+#endif
 
     !=======================================================================
     ! Initialize the Int2Spc object. This is used to copy the tracer arrays
@@ -2216,46 +2253,84 @@ CONTAINS
     ! (as specified in input.geos), the tracers must not be friendly to
     ! the GEOS-5 moist / turbulence components!
     !=======================================================================
+#if defined( MODEL_GEOS )
     nFlds = State_Chm%nSpecies
+#else
+    ! GCHP uses nAdvect (bug?):
+    nFlds = State_Chm%nAdvect
+#endif
     ALLOCATE( Int2Spc(nFlds), STAT=STATUS )
     ASSERT_(STATUS==0)
 
     ! Do for every tracer in State_Chm
     DO I = 1, nFlds
 
+#if defined( MODEL_GEOS )
        SpcInfo => State_Chm%SpcData(I)%Info
+#else
+       ! Get info about this species from the species database
+       N = State_Chm%Map_Advect(I)
+       ThisSpc => State_Chm%SpcData(N)%Info
+#endif
 
        ! Pass tracer name
+#if defined( MODEL_GEOS )
        Int2Spc(I)%Name = TRIM(SpcInfo%Name)
+#else
+       Int2Spc(I)%TrcName = TRIM(ThisSpc%Name)
+#endif
 
        ! Get tracer ID
+#if defined( MODEL_GEOS )
        ! Do not use Ind_() to get tracer ID. It may return the wrong tracer ID
        ! for species with the same hash (ckeller, 10/6/17)
        !!!Int2Spc(I)%ID = Ind_( TRIM(Int2Spc(I)%Name) )
        Int2Spc(I)%ID = SpcInfo%ModelID
+#else
+       Int2Spc(I)%TrcID = IND_( TRIM(Int2Spc(I)%TrcName) )
+#endif
 
        ! If tracer ID is not valid, make sure all vars are at least defined.
+#if defined( MODEL_GEOS )
        IF ( Int2Spc(I)%ID <= 0 ) THEN
           Int2Spc(I)%Internal => NULL()
           CYCLE
        ENDIF
+#else
+       IF ( Int2Spc(I)%TrcID <= 0 ) THEN
+          Int2Spc(I)%Internal => NULL()
+          CYCLE
+       ENDIF
+#endif
 
        ! Get internal state field
+#if defined( MODEL_GEOS )
        fieldName = TRIM(SPFX)//TRIM(Int2Spc(I)%Name)
        CALL ESMF_StateGet( INTSTATE, TRIM(fieldName), GcFld, RC=STATUS )
        IF ( STATUS /= ESMF_SUCCESS ) THEN
           fieldName = TRIM(TPFX)//TRIM(Int2Spc(I)%Name)
           CALL ESMF_StateGet( INTSTATE, TRIM(fieldName), GcFld, RC=STATUS )
        ENDIF 
+#else
+       CALL ESMF_StateGet( INTSTATE, TRIM(SPFX) // TRIM(Int2Spc(I)%TrcName), &
+                           GcFld, RC=STATUS )
+#endif
 
        ! This is mostly for testing 
        IF ( STATUS /= ESMF_SUCCESS ) THEN
           IF( am_I_Root ) WRITE(*,*) 'Cannot find in internal state for ', &
+#if defined( MODEL_GEOS )
                                      TRIM(Int2Spc(I)%Name),I
           Int2Spc(I)%Internal => NULL()
           CYCLE
+#else
+                                     TRIM(Int2Spc(I)%TrcName),I
+          ENDIF
+          ASSERT_(.FALSE.)
+#endif
        ENDIF
 
+#if defined( MODEL_GEOS )
        ! Check friendliness of field: the field must not be friendly to 
        ! moist and/or turbulence if the corresponding GEOS-Chem switches 
        ! are turned on!
@@ -2300,8 +2375,18 @@ CONTAINS
        ! Free pointers
        Ptr3D   => NULL()
        SpcInfo => NULL()
+#else
+       ! Get pointer to field
+       CALL ESMF_FieldGet( GcFld, 0, Ptr3D_R8, __RC__ )
+       Int2Spc(I)%Internal => Ptr3D_R8
+
+       ! Free pointers
+       Ptr3D_R8 => NULL()
+       ThisSpc  => NULL()
+#endif
     ENDDO
 
+#if defined( MODEL_GEOS )
     !=======================================================================
     ! Make sure that GEOS-Chem calculates chemistry tendencies of O3 and H2O
     ! if it is the analysis OX and RATS provider, respectively. 
@@ -2321,6 +2406,7 @@ CONTAINS
           CALL Tend_Add        ( am_I_Root, Input_Opt, State_Chm, 'CHEM', GCID, __RC__ )
        ENDIF
     ENDIF
+#endif
 
     !=======================================================================
     ! Error trap: make sure that chemistry / emission time step are same and
@@ -2348,6 +2434,17 @@ CONTAINS
        ASSERT_(.FALSE.)
     ENDIF
 
+#if !defined( MODEL_GEOS )
+    IF ( ArchivedConv .AND. am_I_Root ) THEN
+       WRITE(*,*) ' '
+       WRITE(*,*) ' --------------------------------------------------- '
+       WRITE(*,*) ' GEOS-Chem will be using archived convection fields! '
+       WRITE(*,*) ' --------------------------------------------------- '
+       WRITE(*,*) ' '
+    ENDIF
+#endif
+
+#if defined( MODEL_GEOS )
     !=======================================================================
     ! Read GEOSCHEMchem settings 
     !=======================================================================
@@ -2529,6 +2626,7 @@ CONTAINS
     !=======================================================================
     ! All done
     !=======================================================================
+#endif
 
     ! Write a header before the timestepping begins
     IF ( am_I_Root ) THEN
