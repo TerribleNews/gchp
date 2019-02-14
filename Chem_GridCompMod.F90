@@ -31,6 +31,7 @@
 !      and should be called after turbulence.
 !\\
 !\\
+! GEOS-5 only:
 ! All GEOS-Chem species are stored in the GEOSCHEMchem internal state object
 ! in units of kg/kg total. Since molecular weights are missing for 
 ! non-transported species (SPC_<XXX>), a value of 1g/mol is used when 
@@ -156,7 +157,12 @@ MODULE Chem_GridCompMod
   REAL                             :: ANAO3FR 
   CHARACTER(LEN=ESMF_MAXSTR)       :: ANAO3FILE
 #else
+
   LOGICAL                          :: isProvider ! provider to AERO, RATS, ANOX?
+  LOGICAL                          :: calcOzone  ! if PTR_GCCTO3 is associated
+
+  ! Is this being run as a CTM?
+  INTEGER                          :: IsCTM
 #endif
 
   ! Number of run phases, 1 or 2. Set in the rc file; else default is 2.
@@ -237,10 +243,7 @@ MODULE Chem_GridCompMod
 
   ! Pointers to import, export and internal state data. Declare them as 
   ! module variables so that we have to assign them only on first call.
-#if !defined( MODEL_GEOS )
-  ! NOTE: Any provider-related exports (e.g. H2O_TEND) are now handled within
-  ! gigc_providerservices_mod.F90. Pointers are manually declared there and
-  ! those declared in the .h file included below are not used. (ewl, 11/3/2017)
+#if defined( MODEL_GEOS )
 # include "GEOSCHEMCHEM_DeclarePointer___.h"
 #else
 # include "GIGCchem_DeclarePointer___.h"
@@ -264,6 +267,9 @@ MODULE Chem_GridCompMod
   REAL, POINTER     :: PTR_ARCHIVED_DQRC   (:,:,:) => NULL()
   REAL, POINTER     :: PTR_ARCHIVED_REV_CN (:,:,:) => NULL()
   REAL, POINTER     :: PTR_ARCHIVED_T      (:,:,:) => NULL()
+
+  ! MPI communicator
+  INTEGER, SAVE     :: mpiCOMM
 #endif
 
 #if defined( MODEL_GEOS )
@@ -1366,7 +1372,7 @@ CONTAINS
     CALL Provider_SetServices( MAPL_am_I_Root(), GC, isProvider, __RC__ )
 #endif
 
- #if defined( MODEL_GEOS )
+#if defined( MODEL_GEOS )
     ! Reaction coefficients & rates 
     ! -----------------------------
     DO I = 1, NREACT
@@ -1863,17 +1869,19 @@ CONTAINS
     ! so that we can pass those into GeosCore/input_mod.F of GEOS-Chem
     !=======================================================================
 
+#if defined( MODEL_GEOS )
     ! Max # of diagnostics
-    CALL ESMF_ConfigGetAttribute( GeosCF, Input_Opt%MAX_DIAG,       &
+    CALL ESMF_ConfigGetAttribute( GeosCF, Input_Opt%MAX_BPCH_DIAG,  &
                                   Default = 80,                     &
                                   Label   = "MAX_DIAG:",            &
                                   __RC__                           ) 
 
     ! Max # of families per ND65 family tracer (not used for ESMF)
-    CALL ESMF_ConfigGetAttribute( GeosCF, Input_Opt%MAX_FAM,       &
+    CALL ESMF_ConfigGetAttribute( GeosCF, Input_Opt%MAX_Families,   &
                                   Default = 20,                     &
-                                  Label   = "MAX_FAM:",            & 
-                                  __RC__                          )
+                                  Label   = "MAX_FAM:",             & 
+                                  __RC__
+#endif
 
     ! # of levels in LINOZ climatology
     CALL ESMF_ConfigGetAttribute( GeosCF, Input_Opt%LINOZ_NLEVELS,  &
@@ -1906,6 +1914,7 @@ CONTAINS
                                   __RC__                           )
     ASSERT_(NPHASE==1.OR.NPHASE==2) 
 
+#if defined( MODEL_GEOS )
     ! Top stratospheric level
     CALL ESMF_ConfigGetAttribute( GeosCF, value_LLSTRAT,         & 
                                   Default = 59,                     &
@@ -1947,6 +1956,7 @@ CONTAINS
     IF ( am_I_Root ) THEN
        WRITE(*,*) 'Stop KPP if integration fails: ',Input_Opt%KppStop
     ENDIF
+#endif
 
     !=======================================================================
     ! Initialize GEOS-Chem (will also initialize HEMCO)
@@ -1979,8 +1989,8 @@ CONTAINS
                           State_Diag= State_Diag, & ! Diagnostics State obj
 #if defined( MODEL_GEOS )
                           value_LLSTRAT = value_LLSTRAT,    & ! # strat. levels 
-                          HcoConfig = HcoConfig,  & ! HEMCO config obj 
 #endif
+                          HcoConfig = HcoConfig,  & ! HEMCO config obj 
                           HistoryConfig = HistoryConfig, & ! History Config Obj
                           __RC__                 )
 
@@ -2318,16 +2328,17 @@ CONTAINS
 
        ! This is mostly for testing 
        IF ( STATUS /= ESMF_SUCCESS ) THEN
-          IF( am_I_Root ) WRITE(*,*) 'Cannot find in internal state for ', &
+          IF( am_I_Root ) THEN
+             WRITE(*,*) 'Cannot find in internal state for ', &
 #if defined( MODEL_GEOS )
                                      TRIM(Int2Spc(I)%Name),I
-          Int2Spc(I)%Internal => NULL()
-          CYCLE
+             Int2Spc(I)%Internal => NULL()
+             CYCLE
 #else
                                      TRIM(Int2Spc(I)%TrcName),I
+#endif
           ENDIF
           ASSERT_(.FALSE.)
-#endif
        ENDIF
 
 #if defined( MODEL_GEOS )
@@ -2736,7 +2747,7 @@ CONTAINS
 ! !IROUTINE: Run2
 !
 ! !DESCRIPTION: Run2 is a wrapper method for the phase 2 run phase of the 
-!  GEOSCHEMchem gridded component. It calls down to the Run method of the 
+!  GEOS-Chem gridded component. It calls down to the Run method of the 
 !  GEOS-Chem column chemistry code.
 !\\
 !\\
@@ -2805,7 +2816,7 @@ CONTAINS
 !
 ! !IROUTINE: Run_
 !
-! !DESCRIPTION: Run_ is the run method of the GEOSCHEMchem gridded component.  
+! !DESCRIPTION: Run_ is the run method of the GEOS-Chem gridded component.  
 !  GC is a simple ESMF/MAPL wrapper which calls down to the Run method of 
 !  the GEOS-Chem column chemistry code.
 !  Note: this routine currently skips the call down to GEOS-Chem on the very 
@@ -3030,6 +3041,10 @@ CONTAINS
     REAL              , POINTER  :: fPtrArray(:,:,:)
     REAL(ESMF_KIND_R8), POINTER  :: fPtrVal, fPtr1D(:)
     INTEGER                      :: IMAXLOC(1)
+
+    ! For CTM Mode
+    REAL(ESMF_KIND_R8),  POINTER :: PLE(:,:,:)     => NULL() ! INTERNAL: PEDGE
+    REAL,                POINTER :: AIRDENS(:,:,:) => NULL() ! INTERNAL: PEDGE
 #endif
 
     __Iam__('Run_')
@@ -3569,7 +3584,7 @@ CONTAINS
        ! whatever values are in the restarts. However, it is possible to
        ! initialize everything to zero and/or to set species' concentration to
        ! the values set in globchem.dat.rc. These options can be set in the
-       ! GEOSCHEMchem GridComp registry. (ckeller, 2/4/16)
+       ! GEOS-Chem GridComp registry. (ckeller, 2/4/16)
        !=======================================================================
        IF ( FIRST .OR. FIRSTREWIND ) THEN
           ! Check if zero initialization option is selected. If so, make sure 
@@ -4321,7 +4336,7 @@ CONTAINS
 !
 ! !IROUTINE: Finalize_
 !
-! !DESCRIPTION: Finalize_ is the finalize method of the GEOSCHEMchem gridded 
+! !DESCRIPTION: Finalize_ is the finalize method of the GEOS-Chem gridded 
 !  component.  GC is a simple ESMF/MAPL wrapper which calls down to the
 !  Finalize method of the GEOS-Chem column chemistry code.
 !\\
@@ -4736,6 +4751,9 @@ CONTAINS
 ! LOCAL VARIABLES:
 ! 
     ! Objects
+#if !defined( MODEL_GEOS )
+    TYPE(ESMF_Time)               :: stopTime       ! ESMF stop time obj
+#endif
     TYPE(ESMF_Time)               :: startTime      ! ESMF start time obj
     TYPE(ESMF_Time)               :: currTime       ! ESMF current time obj
     TYPE(ESMF_TimeInterval)       :: elapsedTime    ! ESMF elapsed time obj
@@ -4835,13 +4853,12 @@ CONTAINS
         CALL ESMF_TimeIntervalGet( chemInterval, s_r8=dt_r8, __RC__ )
         tsChem = real(dt_r8)
 
-        IF(tsChem < tsDyn) THEN
-         IF(MAPL_AM_I_ROOT())   &
+        IF(tsChem < tsDyn .AND. MAPL_AM_I_ROOT()) THEN
 #if defined( MODEL_GEOS )
                 PRINT *,"GEOSCHEMCHEM_DT cannot be less than RUN_DT"
 #else
                 PRINT *,"Chem_DT cannot be less than RUN_DT"
-#endnf
+#endif
          STATUS = 1
          VERIFY_(STATUS)
         ENDIF
@@ -7848,5 +7865,7 @@ CONTAINS
    end function monin_obukhov_length
 
 !EOC
-#endif
  END MODULE GEOSCHEMchem_GridCompMod
+#else
+ END MODULE Chem_GridCompMod
+#endif

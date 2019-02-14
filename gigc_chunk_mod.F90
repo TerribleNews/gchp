@@ -561,9 +561,9 @@ CONTAINS
     ! processes on the first 10 calls.
     INTEGER, SAVE                  :: NCALLS = 0
 
-#if defined( MODEL_GEOS )
     ! Strat. H2O settings 
     LOGICAL                        :: SetStratH2O 
+#if defined( MODEL_GEOS )
     LOGICAL, SAVE                  :: LSETH2O_orig
 #endif
 
@@ -636,7 +636,7 @@ CONTAINS
     DoConv   = Input_Opt%LCONV                    ! dynamic time step
     DoDryDep = Input_Opt%LDRYD .AND. IsChemTime   ! chemistry time step
     DoEmis   = Input_Opt%LEMIS .AND. IsChemTime   ! chemistry time step
-#if defined( MODEL_GEOS 
+#if defined( MODEL_GEOS )
     DoTurb   = Input_Opt%LTURB .AND. IsChemTime   ! dynamic time step
 #else
     DoTurb   = Input_Opt%LTURB                    ! dynamic time step
