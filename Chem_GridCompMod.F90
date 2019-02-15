@@ -86,7 +86,7 @@ MODULE Chem_GridCompMod
 !
   PRIVATE  :: Initialize_    ! Init method
   PRIVATE  :: Run1           ! Run wrapper phase 1
-  PRIVATE  :: Run2           ! Run wrapper phase 2
+  PRIVATE  :: Run2           ! Run wrapper phase 2 or -1
   PRIVATE  :: Run_           ! Run method
   PRIVATE  :: Finalize_      ! Finalize method
   PRIVATE  :: Extract_       ! Get values from ESMF
@@ -267,9 +267,6 @@ MODULE Chem_GridCompMod
   REAL, POINTER     :: PTR_ARCHIVED_DQRC   (:,:,:) => NULL()
   REAL, POINTER     :: PTR_ARCHIVED_REV_CN (:,:,:) => NULL()
   REAL, POINTER     :: PTR_ARCHIVED_T      (:,:,:) => NULL()
-
-  ! MPI communicator
-  INTEGER, SAVE     :: mpiCOMM
 #endif
 
 #if defined( MODEL_GEOS )
@@ -832,6 +829,18 @@ CONTAINS
     CALL HistoryExports_SetServices( MAPL_am_I_Root(), HistoryConfigFile, &
                                      GC, HistoryConfig, RC=STATUS )
     VERIFY_(STATUS)
+
+#if !defined( MODEL_GEOS )
+    call MAPL_AddExportSpec(GC,                                   &
+        SHORT_NAME         = 'TRACERS',                           &
+        LONG_NAME          = 'tracer_volume_mixing_ratios',       &
+        UNITS              = 'mol/mol',                           &
+        DIMS               = MAPL_DimsHorzVert,                   &
+        VLOCATION          = MAPL_VLocationCenter,                &
+        DATATYPE           = MAPL_BundleItem,                     &
+                                                       RC=STATUS  )
+#endif
+
 !EOP
 !BOC
 
@@ -1470,7 +1479,7 @@ CONTAINS
           UNITS              = 'kg m-2 s-1',                        &
           DIMS               = MAPL_DimsHorzVert,                   &
           VLOCATION          = MAPL_VLocationEdge,                  &
-                                                            __RC__ )
+                                                           __RC__ )
 
        call MAPL_AddImportSpec(GC,                                  &
           SHORT_NAME         = 'ARCHIVED_CNV_MFC',                  &
@@ -1596,6 +1605,10 @@ CONTAINS
     CALL MAPL_GenericSetServices( GC, RC=status )
     VERIFY_(status)
 
+#if !defined( MODEL_GEOS )
+    NULLIFY(STATE)
+#endif
+
     !=======================================================================
     ! All done
     !=======================================================================
@@ -1697,7 +1710,9 @@ CONTAINS
     INTEGER                     :: IM          ! # of longitudes on this PET
     INTEGER                     :: JM          ! # of latitudes  on this PET
     INTEGER                     :: LM          ! # of levels     on this PET
+#if defined( MODEL_GEOS )
     INTEGER                     :: value_LLSTRAT ! # of strat. levels  
+#endif
     INTEGER                     :: IM_WORLD    ! # of longitudes in global grid
     INTEGER                     :: JM_WORLD    ! # of latitudes  in global grid
     INTEGER                     :: LM_WORLD    ! # of levels     in global grid
@@ -1983,14 +1998,18 @@ CONTAINS
                           lonCtr    = lonCtr,     & ! Lon centers [radians]
                           latCtr    = latCtr,     & ! Lat centers [radians]
                           myPET     = myPet,      & ! Local PET
+#if !defined( MODEL_GEOS )
+                          GC        = GC,         & ! Ref to this gridded comp
+                          EXPORT    = EXPORT,     & ! Export state object
+#endif
                           Input_Opt = Input_Opt,  & ! Input Options obj
-                          State_Met = State_Met,  & ! Meteorology State obj
                           State_Chm = State_Chm,  & ! Chemistry State obj
                           State_Diag= State_Diag, & ! Diagnostics State obj
+                          State_Met = State_Met,  & ! Meteorology State obj
+                          HcoConfig = HcoConfig,  & ! HEMCO config obj 
 #if defined( MODEL_GEOS )
                           value_LLSTRAT = value_LLSTRAT,    & ! # strat. levels 
 #endif
-                          HcoConfig = HcoConfig,  & ! HEMCO config obj 
                           HistoryConfig = HistoryConfig, & ! History Config Obj
                           __RC__                 )
 
@@ -2426,10 +2445,12 @@ CONTAINS
     ChemTS = GET_TS_CHEM() 
     EmisTS = GET_TS_EMIS()
     IF ( ChemTS /= tsChem .OR. EmisTS /= tsChem ) THEN
+       IF ( am_I_Root ) THEN
           WRITE(*,*) 'GEOS-Chem chemistry and/or emission time step do not'
           WRITE(*,*) 'agree with time step set in GEOSCHEMchem_GridComp.rc'
           WRITE(*,*) 'GEOS-Chem chemistry time step                 : ', ChemTS
           WRITE(*,*) 'GEOS-Chem emission  time step                 : ', EmisTS
+       ENDIF
        ASSERT_(.FALSE.)
     ENDIF
 
@@ -2437,11 +2458,13 @@ CONTAINS
     ChemTS = GET_TS_CONV()
     EmisTS = GET_TS_DYN()
     IF ( ChemTS /= tsDyn .OR. EmisTS /= tsDyn ) THEN
+       IF ( am_I_Root ) THEN
           WRITE(*,*) 'GEOS-Chem transport and/or convection time step do not'
           WRITE(*,*) 'agree with time step set in GEOSCHEMchem_GridComp.rc'
           WRITE(*,*) 'GEOS-Chem convection time step                : ', ChemTS
           WRITE(*,*) 'GEOS-Chem dynamics   time step                : ', EmisTS
           WRITE(*,*) 'RUN_DT in CAP.rc                              : ', tsDyn
+       ENDIF
        ASSERT_(.FALSE.)
     ENDIF
 
@@ -2857,7 +2880,7 @@ CONTAINS
     TYPE(ESMF_State),    INTENT(INOUT), TARGET :: Import ! Import State
     TYPE(ESMF_State),    INTENT(INOUT), TARGET :: Export ! Export State
     TYPE(ESMF_Clock),    INTENT(INOUT)         :: Clock  ! ESMF Clock object
-    INTEGER,             INTENT(IN   )         :: Phase  ! Run phase (1 or 2)
+    INTEGER,             INTENT(IN   )         :: Phase  ! Run phase (-1/1/2)
 !
 ! !OUTPUT PARAMETERS:
 !
@@ -3097,6 +3120,9 @@ CONTAINS
     ! (5) Chemistry       --> Chemistry time step
     ! (6) Wet deposition  --> Dynamics time step
     ! 
+    ! Phase -1:
+    ! Includes all of the above
+    !
     ! Convection and turbulence are only called if the corresponding 
     ! switches are turned on in the GEOS-Chem input file (input.geos).
     !
@@ -3115,7 +3141,8 @@ CONTAINS
     IF ( Input_Opt%LWETD .AND. Phase /= 1 ) IsRunTime = .TRUE.
 
     ! Is it time to update tendencies?
-    ! Tendencies shall only be updated when chemistry is done.
+    ! Tendencies shall only be updated when chemistry is done, which is
+    ! Phase -1 or 2
     IsTendTime = ( IsChemTime .AND. Phase /= 1 )
 
     ! Start timers
@@ -4294,6 +4321,12 @@ CONTAINS
     IF ( ALLOCATED( zenith     ) ) DEALLOCATE( zenith     )
     IF ( ALLOCATED( solar      ) ) DEALLOCATE( solar      )
 
+#if !defined( MODEL_GEOS )
+    IF ( am_I_Root ) THEN
+       CLOSE ( UNIT=logLun )
+    ENDIF
+#endif
+
     ! Stop timer
     ! ----------
     CALL MAPL_TimerOff(STATE, "TOTAL")
@@ -4347,7 +4380,9 @@ CONTAINS
 !
 ! !USES:
 !
+#if defined( MODEL_GEOS )
     USE HCO_INTERFACE_MOD,       ONLY : HcoState
+#endif
 !
 ! !INPUT/OUTPUT PARAMETERS:
 !
@@ -4911,8 +4946,14 @@ CONTAINS
                          __RC__ )
 
     ! Get individual fields from the time object
+#if defined( MODEL_GEOS )
     CALL ESMF_TimeGet( currTime, yy=yyyy, mm=mm, dd=dd, dayOfYear=doy, &
                                  h=h,     m=m,   s=s,   __RC__ )
+#else
+    ! Get starting-time fields from the time object
+    CALL ESMF_TimeGet( startTime, yy=yyyy, mm=mm, dd=dd, dayOfYear=doy, &
+                                  h=h,     m=m,   s=s,   __RC__ )
+#endif
 
     ! Save fields for return
     IF ( PRESENT( nymd     ) ) CALL MAPL_PackTime( nymd, yyyy, mm, dd )

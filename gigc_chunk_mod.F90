@@ -88,13 +88,11 @@ CONTAINS
 !
     USE Chemistry_Mod,           ONLY : Init_Chemistry
     USE CMN_Size_Mod,            ONLY : IIPAR, JJPAR, LLPAR, dLon, dLat
-    USE DiagList_Mod
     USE Emissions_Mod,           ONLY : Emissions_Init
     USE ESMF,                    ONLY : ESMF_KIND_R4
     USE Fast_JX_Mod,             ONLY : Init_FJX
     USE GC_Environment_Mod
     USE GC_Grid_Mod,             ONLY : SetGridFromCtr
-    USE GC_Grid_Mod,             ONLY : Set_xOffSet, Set_yOffSet
     USE GIGC_HistoryExports_Mod, ONLY : HistoryConfigObj
     USE HCO_Types_Mod,           ONLY : ConfigObj
     USE Input_Mod,               ONLY : Read_Input_File
@@ -327,14 +325,6 @@ CONTAINS
        ASSERT_(RC==GC_SUCCESS)
     ENDIF
 
-#if !defined( MODEL_GEOS )
-    ! Allocate array of overhead O3 columns for TOMS if chemistry is on
-    IF ( Input_Opt%LCHEM ) THEN
-       CALL Init_TOMS( am_I_Root, Input_Opt, RC )
-       ASSERT_(RC==GC_SUCCESS)
-    ENDIF
-#endif
-
     ! Initialize HEMCO
     CALL EMISSIONS_INIT ( am_I_Root, Input_Opt, State_Met, State_Chm, RC, &
                           HcoConfig=HcoConfig )
@@ -348,9 +338,7 @@ CONTAINS
 
     ENDIF
 
-#if defined( MODEL_GEOS )
     !IF ( Input_Opt%LSCHEM .AND. Input_Opt%LLSTRAT < value_LM ) THEN
-#endif
      IF ( Input_Opt%LSCHEM ) THEN
        CALL INIT_STRAT_CHEM( am_I_Root, Input_Opt, State_Chm, & 
                              State_Met, RC )
@@ -611,14 +599,14 @@ CONTAINS
     !
     ! Here, we use the following operator sequence:
     ! 
-    ! 1.  Convection (v/v) --> Phase 1
-    ! 2.  DryDep (kg)      --> Phase 1
-    ! 3.  Emissions (kg)   --> Phase 1
-    ! 4a. Tendencies (v/v) --> Phase 1
-    ! -------------------------------
-    ! 4b. Turbulence (v/v) --> Phase 2 
-    ! 5.  Chemistry (kg)   --> Phase 2
-    ! 6.  WetDep (kg)      --> Phase 2     
+    ! 1.  Convection (v/v) --> Phase 1 or -1
+    ! 2.  DryDep (kg)      --> Phase 1 or -1
+    ! 3.  Emissions (kg)   --> Phase 1 or -1
+    ! 4a. Tendencies (v/v) --> Phase 1 or -1
+    ! --------------------------------------
+    ! 4b. Turbulence (v/v) --> Phase 2 or -1 
+    ! 5.  Chemistry (kg)   --> Phase 2 or -1
+    ! 6.  WetDep (kg)      --> Phase 2 or -1     
     ! 
     ! Any of the listed processes is only executed if the corresponding switch
     ! in the input.geos file is enabled. If the physics component already
@@ -730,8 +718,13 @@ CONTAINS
     CALL SET_DRY_SURFACE_PRESSURE( State_Met, 2 )
 
     ! Initialize surface pressures to match the post-advection pressures
+#if defined( MODEL_GEOS )
     State_Met%PSC2_WET = State_Met%PS1_WET
     State_Met%PSC2_DRY = State_Met%PS1_DRY
+#else
+    State_Met%PSC2_WET = State_Met%PS2_WET
+    State_Met%PSC2_DRY = State_Met%PS2_DRY
+#endif
     CALL SET_FLOATING_PRESSURES( am_I_Root, State_Met, RC )
     IF ( RC /= GC_SUCCESS ) RETURN
 
@@ -904,9 +897,11 @@ CONTAINS
        if(am_I_Root.and.NCALLS<10) write(*,*) ' --- Do emissions now'
        CALL MAPL_TimerOn( STATE, 'GC_EMIS' )
 
-       ! Call HEMCO run interface - Phase 2 
+       ! Call HEMCO run interface - Phase 2
+       HCO_PHASE = 2 
        CALL EMISSIONS_RUN ( am_I_Root, Input_Opt,  State_Met, &
-                            State_Chm, State_Diag, IsChemTime, 2, RC )
+                            State_Chm, State_Diag, IsChemTime,&
+                            HCO_PHASE, RC )
        ASSERT_(RC==GC_SUCCESS)
 
        CALL MAPL_TimerOff( STATE, 'GC_EMIS' )
@@ -1077,9 +1072,11 @@ CONTAINS
        ASSERT_(RC==GC_SUCCESS)
     ENDIF
 
+#if defined( MODEL_GEOS )
     ! Write HEMCO diagnostics 
     CALL HCOI_GC_WriteDiagn( am_I_Root, Input_Opt, .FALSE., RC )
     ASSERT_(RC==GC_SUCCESS)
+#endif
 
     CALL MAPL_TimerOff( STATE, 'GC_DIAGN' )
 
@@ -1137,7 +1134,6 @@ CONTAINS
     USE HCOI_GC_MAIN_MOD,      ONLY : HCOI_GC_FINAL
     USE State_Diag_Mod,        ONLY : DgnState, Cleanup_State_Diag
     USE DiagList_Mod,          ONLY : Cleanup_DiagList
-    USE Diagnostics_Mod
 !
 ! !INPUT PARAMETERS:
 !
