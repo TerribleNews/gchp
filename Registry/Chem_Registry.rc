@@ -165,6 +165,9 @@
 #  ULL                |     1	   | xyz | C |    |   |   |	|      | 
 #  VLL                |     1	   | xyz | C |    |   |   |	|      | 
 #  Z0                 |     1	   | xy  |   |    |   |   |	|      | 
+# Added for coupling with GOCART
+   GOCART_BCPO   |     1	   | xyz | C |    |   |   |	|      |
+   GOCART_BCPI   |     1	   | xyz | C |    |   |   |	|      |
 # -------------------|-------------|-----|---|----|---|---|-----|------|--------------------------
 </ImportSpec>
 
@@ -264,6 +267,9 @@
   FJX_EXTRAL_NLEVS                | 1              | xy  |   |    |   |   |     | FAST-JX_EXTRAL_layers 
   FJX_EXTRAL_NITER                | 1              | xy  |   |    |   |   |     | FAST-JX_EXTRAL_iterations
   GCC_SUNCOS                      | 1              | xy  |   |    |   |   |     | SUNCOS 
+# Added for coupling with GOCART
+  GC_BCPO                         |     1	   | xyz | C |    |   |   |	|
+  GC_BCPI                         |     1	   | xyz | C |    |   |   |	|
 # --------------------------------|----------------|-----|---|----|---|---|-----|---------------------------------
 </ExportSpec>
 #                               --------------

@@ -3213,6 +3213,14 @@ CONTAINS
     CHARACTER(LEN=ESMF_MAXSTR)  :: RRName      ! Name of reaction name 
 !---
 
+    ! ewl gocart
+    INTEGER :: BCPO_id 
+    INTEGER :: BCPI_id
+    REAL, POINTER :: gcbcpo(:,:,:)
+    REAL, POINTER :: gcbcpi(:,:,:)
+    REAL, POINTER :: gocartbcpo(:,:,:)
+    REAL, POINTER :: gocartbcpi(:,:,:)
+
     __Iam__('Run_')
 
     !=======================================================================
@@ -3222,11 +3230,21 @@ CONTAINS
     ! Are we on the root PET?
     am_I_Root = MAPL_Am_I_Root()
 
+    ! ewl gocart
+    gcbcpo => NULL()
+    gcbcpi => NULL()
+    gocartbcpo => NULL()
+    gocartbcpo => NULL()
+
     ! Set up traceback info
     CALL ESMF_GridCompGet( GC, name=compName, __RC__ )
 
     ! Identify this routine to MAPL
     Iam = TRIM(compName)//'::Run_'
+
+    ! ewl gocart - set ids for testing
+    BCPI_id = IND_('BCPI')
+    BCPO_id = IND_('BCPO')
 
     ! Get my MAPL_Generic state
     ! -------------------------
@@ -3308,6 +3326,14 @@ CONTAINS
 !       call MAPL_GetPointer ( IMPORT, AIRDENS,  'AIRDENS', __RC__ )
 !       !ENDIF
 !---
+
+! ewl GOCART - GEOS-Chem coupling test
+        CALL MAPL_GetPointer ( IMPORT, gocartbcpi, 'GOCART_BCPI' , __RC__ )
+        CALL MAPL_GetPointer ( IMPORT, gocartbcpo, 'GOCART_BCPO' , __RC__ )
+        !print *, "gocartbcpi(20,20,72) in GEOS-Chem: ", gocartbcpi(20,20,72)
+        !print *, "gocartbcp0(20,20,72) in GEOS-Chem: ", gocartbcpo(20,20,72)
+        CALL MAPL_GetPointer ( EXPORT, gcbcpi, 'GC_BCPI' , __RC__ )
+        CALL MAPL_GetPointer ( EXPORT, gcbcpo, 'GC_BCPO' , __RC__ )
 
 ! new code for gigc_providerservices_mod but do not use yet:
 !       ! Set up pointers if GEOS-Chem is a provider
@@ -4548,6 +4574,12 @@ CONTAINS
     HcoState%GRIDCOMP => NULL()
     HcoState%IMPORT   => NULL() 
     HcoState%EXPORT   => NULL()
+
+    ! ewl gocart
+    gcbcpo => NULL()
+    gcbcpi => NULL()
+    gocartbcpo => NULL()
+    gocartbcpi => NULL()
 
     ! Successful return
     RETURN_(ESMF_SUCCESS)

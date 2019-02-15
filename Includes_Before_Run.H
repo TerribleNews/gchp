@@ -226,6 +226,14 @@
   State_Chm%Spc_Units = 'kg/kg total'
 
   !=========================================================================
+  ! Set BCPO and BCPI concentrations to imports from GOCART
+  !=========================================================================
+  !State_Chm%Species(:,:,LM:1:-1,BCPI_id) = GOCART_BCPI(:,:,:)
+  !State_Chm%Species(:,:,LM:1:-1,BCPO_id) = GOCART_BCPO(:,:,:)
+  print *, "ewl: State_Chm%Species(1,1,1) GC before: ", State_Chm%Species(1,1,1,BCPO_id)
+  print *, "ewl: GOCART_BCPO(1,1,72) GC before: ", GOCART_BCPO(1,1,72)
+
+  !=========================================================================
   ! Various other archived variables needed in internal state. Eventually,
   ! we may copy those only on the first time step but for now do it every
   ! time. (ckeller, 9/16/15)
