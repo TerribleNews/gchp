@@ -100,21 +100,23 @@
   !=========================================================================
   ! GOCART coupling with GEOS-Chem (ewl)
   !=========================================================================
-  CALL MAPL_GetPointer( EXPORT, Ptr3D, 'GC_BCPO', notFoundOK=.TRUE., __RC__ ) 
+  CALL MAPL_GetPointer( EXPORT, Ptr3D, 'GC2GOCART_BCPO',  &
+                        notFoundOK=.TRUE., __RC__ ) 
   IF ( ASSOCIATED(Ptr3D) ) THEN
-      print *, "ewl: State_Chm%Species(1,1,1,BCPO_id) GC after: ", State_Chm%Species(1,1,1,BCPO_id)
+      !print *, "ewl: State_Chm%Species(1,1,1,BCPO_id) GC after: ", State_Chm%Species(1,1,1,BCPO_id)
       Ptr3D(:,:,LM:1:-1) = State_Chm%Species(:,:,:,BCPO_id)
       print *, "ewl: GC_BCPO(1,1,72) GC after: ", Ptr3D(1,1,72)
   ELSE
-     PRINT *, "WARNING: Export GC_BCPO not found!"
+     PRINT *, "WARNING: Export GC2GOCART_BCPO not found!"
   ENDIF
   Ptr3D => NULL()
 
-  CALL MAPL_GetPointer( EXPORT, Ptr3D, 'GC_BCPI', notFoundOK=.TRUE., __RC__ ) 
+  CALL MAPL_GetPointer( EXPORT, Ptr3D, 'GC2GOCART_BCPI',  &
+                        notFoundOK=.TRUE., __RC__ ) 
   IF ( ASSOCIATED(Ptr3D) ) THEN
       Ptr3D(:,:,LM:1:-1) = State_Chm%Species(:,:,:,BCPO_id)
   ELSE
-     PRINT *, "WARNING: Export GC_BCPI not found!"
+     PRINT *, "WARNING: Export GC2GOCART_BCPI not found!"
   ENDIF
   Ptr3D => NULL()
 

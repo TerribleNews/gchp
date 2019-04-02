@@ -231,7 +231,7 @@
   !State_Chm%Species(:,:,LM:1:-1,BCPI_id) = GOCART_BCPI(:,:,:)
   !State_Chm%Species(:,:,LM:1:-1,BCPO_id) = GOCART_BCPO(:,:,:)
   print *, "ewl: State_Chm%Species(1,1,1) GC before: ", State_Chm%Species(1,1,1,BCPO_id)
-  print *, "ewl: GOCART_BCPO(1,1,72) GC before: ", GOCART_BCPO(1,1,72)
+  print *, "ewl: GOCART2GC_BCPO(1,1,72) GC before: ", GOCART2GC_BCPO(1,1,72)
 
   !=========================================================================
   ! Various other archived variables needed in internal state. Eventually,

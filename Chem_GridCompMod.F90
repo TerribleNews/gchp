@@ -3216,10 +3216,10 @@ CONTAINS
     ! ewl gocart
     INTEGER :: BCPO_id 
     INTEGER :: BCPI_id
-    REAL, POINTER :: gcbcpo(:,:,:)
-    REAL, POINTER :: gcbcpi(:,:,:)
-    REAL, POINTER :: gocartbcpo(:,:,:)
-    REAL, POINTER :: gocartbcpi(:,:,:)
+    REAL, POINTER :: gc2gocart_bcpo(:,:,:)
+    REAL, POINTER :: gc2gocart_bcpi(:,:,:)
+    REAL, POINTER :: gocart2gc_bcpo(:,:,:)
+    REAL, POINTER :: gocart2gc_bcpi(:,:,:)
 
     __Iam__('Run_')
 
@@ -3231,10 +3231,10 @@ CONTAINS
     am_I_Root = MAPL_Am_I_Root()
 
     ! ewl gocart
-    gcbcpo => NULL()
-    gcbcpi => NULL()
-    gocartbcpo => NULL()
-    gocartbcpo => NULL()
+    gc2gocart_bcpo => NULL()
+    gc2gocart_bcpi => NULL()
+    gocart2gc_bcpo => NULL()
+    gocart2gc_bcpo => NULL()
 
     ! Set up traceback info
     CALL ESMF_GridCompGet( GC, name=compName, __RC__ )
@@ -3328,12 +3328,12 @@ CONTAINS
 !---
 
 ! ewl GOCART - GEOS-Chem coupling test
-        CALL MAPL_GetPointer ( IMPORT, gocartbcpi, 'GOCART_BCPI' , __RC__ )
-        CALL MAPL_GetPointer ( IMPORT, gocartbcpo, 'GOCART_BCPO' , __RC__ )
+        CALL MAPL_GetPointer ( IMPORT, gocart2gc_bcpi, 'GOCART2GC_BCPI' , __RC__ )
+        CALL MAPL_GetPointer ( IMPORT, gocart2gc_bcpo, 'GOCART2GC_BCPO' , __RC__ )
         !print *, "gocartbcpi(20,20,72) in GEOS-Chem: ", gocartbcpi(20,20,72)
         !print *, "gocartbcp0(20,20,72) in GEOS-Chem: ", gocartbcpo(20,20,72)
-        CALL MAPL_GetPointer ( EXPORT, gcbcpi, 'GC_BCPI' , __RC__ )
-        CALL MAPL_GetPointer ( EXPORT, gcbcpo, 'GC_BCPO' , __RC__ )
+        CALL MAPL_GetPointer ( EXPORT, gc2gocart_bcpi, 'GC2GOCART_BCPI' , __RC__ )
+        CALL MAPL_GetPointer ( EXPORT, gc2gocart_bcpo, 'GC2GOCART_BCPO' , __RC__ )
 
 ! new code for gigc_providerservices_mod but do not use yet:
 !       ! Set up pointers if GEOS-Chem is a provider
@@ -4576,10 +4576,10 @@ CONTAINS
     HcoState%EXPORT   => NULL()
 
     ! ewl gocart
-    gcbcpo => NULL()
-    gcbcpi => NULL()
-    gocartbcpo => NULL()
-    gocartbcpi => NULL()
+    gc2gocart_bcpo => NULL()
+    gc2gocart_bcpi => NULL()
+    gocart2gc_bcpo => NULL()
+    gocart2gc_bcpi => NULL()
 
     ! Successful return
     RETURN_(ESMF_SUCCESS)

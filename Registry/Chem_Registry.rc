@@ -1,3 +1,4 @@
+
 #
 # This the GEOS-CHEM Grid Component Registry. It defines Import,
 # Internal and Export states for this component as well as
@@ -166,8 +167,10 @@
 #  VLL                |     1	   | xyz | C |    |   |   |	|      | 
 #  Z0                 |     1	   | xy  |   |    |   |   |	|      | 
 # Added for coupling with GOCART
-   GOCART_BCPO   |     1	   | xyz | C |    |   |   |	|      |
-   GOCART_BCPI   |     1	   | xyz | C |    |   |   |	|      |
+   GOCART2GC_BCPO     |     1	   | xyz | C |    |   |   |	|      |
+   GOCART2GC_BCPI     |     1	   | xyz | C |    |   |   |	|      |
+   GOCART_BCphobic    |  kg/kg     | xyz | C |    |   |   |     |      | Hydrophobic Black Carbon Mixing Ratio
+   GOCART_BCphilic    |  kg/kg     | xyz | C |    |   |   |     |      | Hydrophilic Black Carbon Mixing Ratio
 # -------------------|-------------|-----|---|----|---|---|-----|------|--------------------------
 </ImportSpec>
 
@@ -268,8 +271,8 @@
   FJX_EXTRAL_NITER                | 1              | xy  |   |    |   |   |     | FAST-JX_EXTRAL_iterations
   GCC_SUNCOS                      | 1              | xy  |   |    |   |   |     | SUNCOS 
 # Added for coupling with GOCART
-  GC_BCPO                         |     1	   | xyz | C |    |   |   |	|
-  GC_BCPI                         |     1	   | xyz | C |    |   |   |	|
+  GC2GOCART_BCPO                  |     1	   | xyz | C |    |   |   |	|
+  GC2GOCART_BCPI                  |     1	   | xyz | C |    |   |   |	|
 # --------------------------------|----------------|-----|---|----|---|---|-----|---------------------------------
 </ExportSpec>
 #                               --------------
