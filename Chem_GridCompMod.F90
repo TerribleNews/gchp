@@ -3213,13 +3213,8 @@ CONTAINS
     CHARACTER(LEN=ESMF_MAXSTR)  :: RRName      ! Name of reaction name 
 !---
 
-    ! ewl gocart
-    INTEGER :: BCPO_id 
-    INTEGER :: BCPI_id
-    REAL, POINTER :: gc2gocart_bcpo(:,:,:)
-    REAL, POINTER :: gc2gocart_bcpi(:,:,:)
-    REAL, POINTER :: gocart2gc_bcpo(:,:,:)
-    REAL, POINTER :: gocart2gc_bcpi(:,:,:)
+    ! EWL: GOCART coupling testing
+    INTEGER :: id_BCPI
 
     __Iam__('Run_')
 
@@ -3230,21 +3225,14 @@ CONTAINS
     ! Are we on the root PET?
     am_I_Root = MAPL_Am_I_Root()
 
-    ! ewl gocart
-    gc2gocart_bcpo => NULL()
-    gc2gocart_bcpi => NULL()
-    gocart2gc_bcpo => NULL()
-    gocart2gc_bcpo => NULL()
-
     ! Set up traceback info
     CALL ESMF_GridCompGet( GC, name=compName, __RC__ )
 
     ! Identify this routine to MAPL
     Iam = TRIM(compName)//'::Run_'
 
-    ! ewl gocart - set ids for testing
-    BCPI_id = IND_('BCPI')
-    BCPO_id = IND_('BCPO')
+    ! EWL: GOCART coupling testing
+    id_BCPI = IND_('BCPI')
 
     ! Get my MAPL_Generic state
     ! -------------------------
@@ -3327,14 +3315,6 @@ CONTAINS
 !       !ENDIF
 !---
 
-! ewl GOCART - GEOS-Chem coupling test
-        CALL MAPL_GetPointer ( IMPORT, gocart2gc_bcpi, 'GOCART2GC_BCPI' , __RC__ )
-        CALL MAPL_GetPointer ( IMPORT, gocart2gc_bcpo, 'GOCART2GC_BCPO' , __RC__ )
-        !print *, "gocartbcpi(20,20,72) in GEOS-Chem: ", gocartbcpi(20,20,72)
-        !print *, "gocartbcp0(20,20,72) in GEOS-Chem: ", gocartbcpo(20,20,72)
-        CALL MAPL_GetPointer ( EXPORT, gc2gocart_bcpi, 'GC2GOCART_BCPI' , __RC__ )
-        CALL MAPL_GetPointer ( EXPORT, gc2gocart_bcpo, 'GC2GOCART_BCPO' , __RC__ )
-
 ! new code for gigc_providerservices_mod but do not use yet:
 !       ! Set up pointers if GEOS-Chem is a provider
 !       !IF ( isProvider ) THEN
@@ -3367,6 +3347,18 @@ CONTAINS
 
 ! GCHP ends the (if FIRST) block and then links HEMCO state to GC objects:
    ENDIF
+
+! EWL: See if I actually have access to GOCART BC
+    !if ( w_c%reg%using_GEOSCHEM_BC ) then
+       Ptr3d => NULL()
+       call MAPL_GetPointer(IMPORT, Ptr3d,'GOCART_BCphilic', &
+                            notFoundOk=.TRUE., __RC__)
+       if ( MAPL_AM_I_ROOT() .and. ASSOCIATED(Ptr3d) ) then
+          print *, "ewl: GOCART BCPI (20,20,20): ", Ptr3d(20,20,20)
+          Ptr3d => NULL()
+       endif
+    !endif
+
 
        ! Link HEMCO state to gridcomp objects
        ASSERT_(ASSOCIATED(HcoState))
@@ -4574,12 +4566,6 @@ CONTAINS
     HcoState%GRIDCOMP => NULL()
     HcoState%IMPORT   => NULL() 
     HcoState%EXPORT   => NULL()
-
-    ! ewl gocart
-    gc2gocart_bcpo => NULL()
-    gc2gocart_bcpi => NULL()
-    gocart2gc_bcpo => NULL()
-    gocart2gc_bcpi => NULL()
 
     ! Successful return
     RETURN_(ESMF_SUCCESS)

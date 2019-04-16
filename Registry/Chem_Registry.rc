@@ -166,9 +166,7 @@
 #  ULL                |     1	   | xyz | C |    |   |   |	|      | 
 #  VLL                |     1	   | xyz | C |    |   |   |	|      | 
 #  Z0                 |     1	   | xy  |   |    |   |   |	|      | 
-# Added for coupling with GOCART
-   GOCART2GC_BCPO     |     1	   | xyz | C |    |   |   |	|      |
-   GOCART2GC_BCPI     |     1	   | xyz | C |    |   |   |	|      |
+# EWL: GOCART coupling test
    GOCART_BCphobic    |  kg/kg     | xyz | C |    |   |   |     |      | Hydrophobic Black Carbon Mixing Ratio
    GOCART_BCphilic    |  kg/kg     | xyz | C |    |   |   |     |      | Hydrophilic Black Carbon Mixing Ratio
 # -------------------|-------------|-----|---|----|---|---|-----|------|--------------------------
@@ -270,9 +268,6 @@
   FJX_EXTRAL_NLEVS                | 1              | xy  |   |    |   |   |     | FAST-JX_EXTRAL_layers 
   FJX_EXTRAL_NITER                | 1              | xy  |   |    |   |   |     | FAST-JX_EXTRAL_iterations
   GCC_SUNCOS                      | 1              | xy  |   |    |   |   |     | SUNCOS 
-# Added for coupling with GOCART
-  GC2GOCART_BCPO                  |     1	   | xyz | C |    |   |   |	|
-  GC2GOCART_BCPI                  |     1	   | xyz | C |    |   |   |	|
 # --------------------------------|----------------|-----|---|----|---|---|-----|---------------------------------
 </ExportSpec>
 #                               --------------
