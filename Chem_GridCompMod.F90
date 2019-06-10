@@ -2983,6 +2983,8 @@ CONTAINS
 
     ! Fast-JX diagnostics 
     USE FAST_JX_MOD,             ONLY : EXTRAL_NLEVS, EXTRAL_NITER
+
+    USE GIGC_ProviderServices_Mod, ONLY: MapGC2GOCART_SetExports
 !---
 
 !
@@ -3354,7 +3356,7 @@ CONTAINS
        call MAPL_GetPointer(IMPORT, Ptr3d,'GOCART_BCphilic', &
                             notFoundOk=.TRUE., __RC__)
        if ( MAPL_AM_I_ROOT() .and. ASSOCIATED(Ptr3d) ) then
-          print *, "ewl: GOCART BCPI (20,20,20): ", Ptr3d(20,20,20)
+          print *, "ewl: GOCART BCPI in GEOS-Chem (20,20,1): ", Ptr3d(20,20,1)
           Ptr3d => NULL()
        endif
     !endif
@@ -4129,6 +4131,14 @@ CONTAINS
 !          Int2Spc(I)%Internal = State_Chm%Species(:,:,:,Int2Spc(I)%TrcID)
 !       ENDDO
 !---
+
+       !=======================================================================
+       ! Update the exports that are input to GOCART and used to update
+       ! chem_bundle used in GEOS. Need to add a logical to only do this
+       ! if connecting GEOS-Chem to GOCART as a pass-through.
+       !=======================================================================
+       CALL MapGC2GOCART_SetExports( am_I_Root, Input_Opt, State_Met, &
+                                     State_Chm, IntState, Export, RC )
 
        CALL MAPL_TimerOff(STATE, "CP_AFTR")
        

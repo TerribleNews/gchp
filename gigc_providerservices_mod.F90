@@ -8,7 +8,12 @@
 !
 ! !MODULE: gigc_providerservices_mod
 !
-! !DESCRIPTION: GEOS-Chem includes species CH4, N2O, CFC-11, CFC-12, and 
+! !DESCRIPTION: This module contains functions to facilitate population
+! of GEOS-Chem gridded component exports for use elsewhere in the GEOS
+! system. It is currently in development.
+!
+! Brief overview of GEOS-Chem provider history in GEOS:
+! GEOS-Chem includes species CH4, N2O, CFC-11, CFC-12, and
 ! HCFC-22 and thus can serve as the provider of the radiatively active tracers 
 ! (RATs) needed by the radiation component. If GEOS-Chem is set as the
 ! RATS provider, all required quantities (i.e. the five species listed 
@@ -48,6 +53,7 @@ MODULE gigc_providerservices_mod
 !
 ! !PUBLIC MEMBER FUNCTIONS:
 !
+  PUBLIC   :: MapGC2GOCART_SetExports
   PUBLIC   :: Provider_SetServices
   PUBLIC   :: Provider_Initialize
   PUBLIC   :: Provider_SetPointers
@@ -1746,5 +1752,160 @@ CONTAINS
     RC = ESMF_SUCCESS
 
   END SUBROUTINE FillAeroDP 
+!EOC
+!------------------------------------------------------------------------------
+!     NASA/GSFC, Global Modeling and Assimilation Office, Code 910.1 and      !
+!          Harvard University Atmospheric Chemistry Modeling Group            !
+!------------------------------------------------------------------------------
+!BOP
+!
+! !IROUTINE: MapGC2GOCART_SetExports
+!
+! !DESCRIPTION: MapGC2GOCART_SetExports sets GEOS-Chem exports that are
+! input to GOCART as imports.
+!\\
+!\\
+! !INTERFACE:
+!
+  SUBROUTINE MapGC2GOCART_SetExports ( am_I_Root, Input_Opt, State_Met, &
+                                       State_Chm, IntState,  Export, RC ) 
+!
+! !USES:
+!
+    USE Input_Opt_Mod,     ONLY : OptInput
+    USE State_Met_Mod,     ONLY : MetState
+    USE State_Chm_Mod,     ONLY : ChmState, IND_
+!
+! !INPUT PARAMETERS:
+!
+    LOGICAL,             INTENT(IN)            :: am_I_Root
+    TYPE(OptInput),      INTENT(IN)            :: Input_Opt ! remove?
+    TYPE(MetState),      INTENT(IN)            :: State_Met ! use for unitconv
+    TYPE(ChmState),      INTENT(IN)            :: State_Chm ! remove?
+!
+! !INPUT/OUTPUT PARAMETERS:
+!
+    TYPE(ESMF_State),    INTENT(INOUT), TARGET :: IntState  ! Internal State
+    TYPE(ESMF_State),    INTENT(INOUT), TARGET :: Export    ! Export State
+!
+! !OUTPUT PARAMETERS:
+!
+    INTEGER, INTENT(OUT), OPTIONAL             :: RC     ! Success or failure?
+!
+! !REVISION HISTORY:
+!  22 May 2019 - E. Lundgren - Initial version
+!
+!EOP
+!------------------------------------------------------------------------------
+!BOC
+
+    !=======================================================================
+    ! MapGC2GOCART_SetExports begins here
+    !=======================================================================
+
+    __Iam__('MapGC2GOCART_SetExports')
+
+    ! For GOCART::BC
+    CALL SetExport_('GEOSCHEM_BCphobic', 'TRC_BCPO', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_BCphilic', 'TRC_BCPI', IntState, Export, RC=RC)
+
+    ! For GOCART::CO (TODO: needs unit conversion)
+    CALL SetExport_('GEOSCHEM_CO', 'TRC_CO', IntState, Export, RC=RC)
+
+    ! For GOCART::DU (TODO: mapping TBD)
+    CALL SetExport_('GEOSCHEM_du001', 'TRC_DST1', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_du002', 'TRC_DST2', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_du003', 'TRC_DST3', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_du004', 'TRC_DST4', IntState, Export, &
+                    ScaleFactor=DST4split(1), RC=RC)
+    CALL SetExport_('GEOSCHEM_du005', 'TRC_DST4', IntState, Export, &
+                    ScaleFactor=DST4split(2), RC=RC)
+
+    ! For GOCART::NI (TODO: mapping TBD)
+    CALL SetExport_('GEOSCHEM_NH3',    'TRC_NH3', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_NH4',    'TRC_NH4', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_NO3an1', 'TRC_NO3', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_NO3an2', 'TRC_NO3', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_NO3an3', 'TRC_NO3', IntState, Export, RC=RC)
+
+    ! For GOCART::OC
+    CALL SetExport_('GEOSCHEM_OCPO', 'TRC_OCPO', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_OCPI', 'TRC_OCPI', IntState, Export, RC=RC)
+
+    ! For GOCART::SS (TODO: mapping TBD)
+    CALL SetExport_('GEOSCHEM_SALA', 'TRC_SALA', IntState, Export, &
+                    ScaleFactor=SALAsplit(2), RC=RC)
+    CALL SetExport_('GEOSCHEM_SALA', 'TRC_SALA', IntState, Export, &
+                    ScaleFactor=SALAsplit(2), RC=RC)
+    CALL SetExport_('GEOSCHEM_SALC', 'TRC_SALC', IntState, Export, &
+                    ScaleFactor=SALCsplit(1), RC=RC)
+    CALL SetExport_('GEOSCHEM_SALC', 'TRC_SALC', IntState, Export, &
+                    ScaleFactor=SALCsplit(2), RC=RC)
+    CALL SetExport_('GEOSCHEM_SALC', 'TRC_SALC', IntState, Export, &
+                    ScaleFactor=SALCsplit(3), RC=RC)
+
+    ! For GOCART::SU
+    CALL SetExport_('GEOSCHEM_DMS', 'TRC_DMS', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_SO2', 'TRC_SO2', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_SO4', 'TRC_SO4', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_MSA', 'TRC_MSA', IntState, Export, RC=RC)
+
+    ! TODO: Add more as needed
+
+    ! TODO: Improve error handling
+
+    ! Successful return
+    RETURN_(ESMF_SUCCESS)
+
+CONTAINS
+
+       SUBROUTINE SetExport_(ExpName, IntName, IntState, Export, &
+                             ScaleFactor, RC)
+
+          CHARACTER(LEN=*),    INTENT(IN)            :: ExpName
+          CHARACTER(LEN=*),    INTENT(IN)            :: IntName
+          TYPE(ESMF_State),    INTENT(INOUT), TARGET :: IntState
+          TYPE(ESMF_State),    INTENT(INOUT), TARGET :: Export
+          REAL,                INTENT(IN),  OPTIONAL :: ScaleFactor
+          INTEGER,             INTENT(OUT), OPTIONAL :: RC
+
+          ! Local variables
+          REAL, POINTER :: ExpPtr3d(:,:,:) => NULL()
+          REAL, POINTER :: IntPtr3d(:,:,:) => NULL()
+
+          __Iam__('SetExport_')
+
+          CALL MAPL_GetPointer( Export, ExpPtr3D, TRIM(ExpName),  &
+                                notFoundOk=.TRUE., __RC__ )
+          IF ( ASSOCIATED(ExpPtr3D) ) THEN
+             CALL MAPL_GetPointer ( INTSTATE, IntPtr3D, TRIM(IntName), &
+                                    __RC__ )
+             IF ( ASSOCIATED(IntPtr3D) ) THEN
+                IF ( PRESENT(ScaleFactor) ) THEN
+                   ExpPtr3D = IntPtr3D * ScaleFactor
+                ELSE
+                   ExpPtr3D = IntPtr3D
+                ENDIF
+                IntPtr3D => NULL()
+             ELSE
+                IF ( MAPL_am_I_Root() ) THEN
+                   WRITE (*,*) 'GEOS-Chem internal state pointer not'//&
+                               ' found for ' // Trim(IntName)
+                   ASSERT_(.FALSE.)
+                ENDIF
+             ENDIF
+             ExpPtr3D => NULL()
+          ELSE
+             IF ( MAPL_am_I_Root() ) THEN
+                WRITE (*,*) 'GEOS-Chem export state pointer not found for '//&
+                            Trim(ExpName)
+                ASSERT_(.FALSE.)
+             ENDIF
+          ENDIF
+
+          RETURN_(ESMF_SUCCESS)
+       end subroutine SetExport_ 
+
+  END SUBROUTINE MapGC2GOCART_SetExports
 !EOC
 END MODULE gigc_providerservices_mod
