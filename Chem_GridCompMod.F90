@@ -2872,7 +2872,7 @@ CONTAINS
     ! chemistry related processes in phase 2.
     IF ( NPHASE == 2 ) THEN
 
-       ! ewl debugging
+       ! ewl debugging - sanity check
        CALL MAPL_GetObjectFromGC(GC, STATE, __RC__)
        CALL MAPL_Get (STATE, INTERNAL_ESMF_STATE=INTSTATE, __RC__)
        call MAPL_GetPointer(Import, var3d_1, 'GOCART_BCphilic', rc=status)
@@ -2881,17 +2881,16 @@ CONTAINS
        VERIFY_(STATUS)
        if ( mapl_am_i_root() ) then
           print *, ">> GEOSCHEM: Run1_: start"
-          print *, ">> GEOSCHEM: --> GOCART_BCphilic (20,20,1): ", &
-                   var3d_1(20,20,1) 
-          print *, ">> GEOSCHEM: --> TRC_BCPI (20,20,1): ", var3d_2(20,20,1)
+          print *, ">> GEOSCHEM: --> GOCART_BCphilic:      ", SUM(var3d_1(1,1,1:72)) 
+          print *, ">> GEOSCHEM: --> TRC_BCPI:             ", SUM(var3d_2(:,:,1:72))
           print *, ">> GEOSCHEM: --> calling Run_"
        endif
 
        CALL Run_ ( GC, IMPORT, EXPORT, CLOCK, 1, __RC__ )
 
-       ! ewl debugging
+       ! ewl debugging - sanity check
        if ( mapl_am_i_root() ) then
-          print *, ">> GEOSCHEM: --> TRC_BCPI (20,20,1): ", var3d_2(20,20,1)
+          print *, ">> GEOSCHEM: TRC_BCPI:                 ", SUM(var3d_2(1,1,1:72))
           print *, ">> GEOSCHEM: Run1_: end"
        endif
 
@@ -2969,7 +2968,7 @@ CONTAINS
        PHASE = 2
     ENDIF
 
-    ! ewl debugging
+    ! ewl debugging - sanity check
     CALL MAPL_GetObjectFromGC(GC, STATE, __RC__)
     CALL MAPL_Get (STATE, INTERNAL_ESMF_STATE=INTSTATE, __RC__)
     call MAPL_GetPointer(Import, var3d_1, 'GOCART_BCphilic', rc=status)
@@ -2978,18 +2977,17 @@ CONTAINS
     VERIFY_(STATUS)
     if ( mapl_am_i_root() ) then
        print *, ">> GEOSCHEM: Run2_: start"
-       print *, ">> GEOSCHEM: --> GOCART_BCphilic (20,20,1): ", &
-                var3d_1(20,20,1) 
-       print *, ">> GEOSCHEM: --> TRC_BCPI (20,20,1): ", var3d_2(20,20,1)
+       print *, ">> GEOSCHEM: --> GOCART_BCphilic:      ", SUM(var3d_1(1,1,1:72)) 
+       print *, ">> GEOSCHEM: --> TRC_BCPI:             ", SUM(var3d_2(:,:,1:72))
        print *, ">> GEOSCHEM: --> calling Run_"
     endif
 
     ! Call run routine stage 2
     CALL Run_ ( GC, IMPORT, EXPORT, CLOCK, PHASE, __RC__ )
 
-    ! ewl debugging
+    ! ewl debugging - sanity check
     if ( mapl_am_i_root() ) then
-       print *, ">> GEOSCHEM: TRC_BCPI (20,20,1): ", var3d_2(20,20,1)
+       print *, ">> GEOSCHEM: TRC_BCPI:                 ", SUM(var3d_2(1,1,1:72))
        print *, ">> GEOSCHEM: Run2_: end"
     endif
 
