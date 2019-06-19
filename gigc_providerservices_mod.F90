@@ -1823,25 +1823,25 @@ CONTAINS
 
     ! For GOCART::NI (TODO: mapping TBD)
     CALL SetExport_('GEOSCHEM_NH3',    'TRC_NH3', IntState, Export, RC=RC)
-    CALL SetExport_('GEOSCHEM_NH4',    'TRC_NH4', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_NH4a',    'TRC_NH4', IntState, Export, RC=RC)
     CALL SetExport_('GEOSCHEM_NO3an1', 'TRC_NO3', IntState, Export, RC=RC)
     CALL SetExport_('GEOSCHEM_NO3an2', 'TRC_NO3', IntState, Export, RC=RC)
     CALL SetExport_('GEOSCHEM_NO3an3', 'TRC_NO3', IntState, Export, RC=RC)
 
     ! For GOCART::OC
-    CALL SetExport_('GEOSCHEM_OCPO', 'TRC_OCPO', IntState, Export, RC=RC)
-    CALL SetExport_('GEOSCHEM_OCPI', 'TRC_OCPI', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_OCphobic', 'TRC_OCPO', IntState, Export, RC=RC)
+    CALL SetExport_('GEOSCHEM_OCphilic', 'TRC_OCPI', IntState, Export, RC=RC)
 
     ! For GOCART::SS (TODO: mapping TBD)
-    CALL SetExport_('GEOSCHEM_SALA', 'TRC_SALA', IntState, Export, &
+    CALL SetExport_('GEOSCHEM_ss001', 'TRC_SALA', IntState, Export, &
                     ScaleFactor=SALAsplit(2), RC=RC)
-    CALL SetExport_('GEOSCHEM_SALA', 'TRC_SALA', IntState, Export, &
+    CALL SetExport_('GEOSCHEM_ss002', 'TRC_SALA', IntState, Export, &
                     ScaleFactor=SALAsplit(2), RC=RC)
-    CALL SetExport_('GEOSCHEM_SALC', 'TRC_SALC', IntState, Export, &
+    CALL SetExport_('GEOSCHEM_ss003', 'TRC_SALC', IntState, Export, &
                     ScaleFactor=SALCsplit(1), RC=RC)
-    CALL SetExport_('GEOSCHEM_SALC', 'TRC_SALC', IntState, Export, &
+    CALL SetExport_('GEOSCHEM_ss004', 'TRC_SALC', IntState, Export, &
                     ScaleFactor=SALCsplit(2), RC=RC)
-    CALL SetExport_('GEOSCHEM_SALC', 'TRC_SALC', IntState, Export, &
+    CALL SetExport_('GEOSCHEM_ss005', 'TRC_SALC', IntState, Export, &
                     ScaleFactor=SALCsplit(3), RC=RC)
 
     ! For GOCART::SU

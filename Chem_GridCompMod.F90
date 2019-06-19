@@ -2851,6 +2851,12 @@ CONTAINS
     CHARACTER(LEN=ESMF_MAXSTR)  :: Iam
     INTEGER                     :: STATUS
 
+    ! ewl debugging
+    TYPE(MAPL_MetaComp), POINTER :: STATE
+    TYPE(ESMF_STATE)             :: INTSTATE
+    real, pointer :: var3D_1(:,:,:) => null()
+    real, pointer :: var3D_2(:,:,:) => null()
+
     !=======================================================================
     ! Run1 starts here 
     !=======================================================================
@@ -2865,7 +2871,30 @@ CONTAINS
     ! Skip this step if only one phase is defined. In this case, we do all 
     ! chemistry related processes in phase 2.
     IF ( NPHASE == 2 ) THEN
+
+       ! ewl debugging
+       CALL MAPL_GetObjectFromGC(GC, STATE, __RC__)
+       CALL MAPL_Get (STATE, INTERNAL_ESMF_STATE=INTSTATE, __RC__)
+       call MAPL_GetPointer(Import, var3d_1, 'GOCART_BCphilic', rc=status)
+       VERIFY_(STATUS)
+       call MAPL_GetPointer(IntState, var3d_2, 'TRC_BCPI', rc=status)
+       VERIFY_(STATUS)
+       if ( mapl_am_i_root() ) then
+          print *, ">> GEOSCHEM: Run1_: start"
+          print *, ">> GEOSCHEM: --> GOCART_BCphilic (20,20,1): ", &
+                   var3d_1(20,20,1) 
+          print *, ">> GEOSCHEM: --> TRC_BCPI (20,20,1): ", var3d_2(20,20,1)
+          print *, ">> GEOSCHEM: --> calling Run_"
+       endif
+
        CALL Run_ ( GC, IMPORT, EXPORT, CLOCK, 1, __RC__ )
+
+       ! ewl debugging
+       if ( mapl_am_i_root() ) then
+          print *, ">> GEOSCHEM: --> TRC_BCPI (20,20,1): ", var3d_2(20,20,1)
+          print *, ">> GEOSCHEM: Run1_: end"
+       endif
+
     ENDIF
 
     ! Return w/ success
@@ -2916,6 +2945,12 @@ CONTAINS
     INTEGER                     :: PHASE
     INTEGER                     :: STATUS
 
+    ! ewl debugging
+    TYPE(MAPL_MetaComp), POINTER :: STATE
+    TYPE(ESMF_STATE)             :: INTSTATE
+    real, pointer :: var3D_1(:,:,:) => null()
+    real, pointer :: var3D_2(:,:,:) => null()
+
     !=======================================================================
     ! Run2 starts here 
     !=======================================================================
@@ -2934,8 +2969,29 @@ CONTAINS
        PHASE = 2
     ENDIF
 
+    ! ewl debugging
+    CALL MAPL_GetObjectFromGC(GC, STATE, __RC__)
+    CALL MAPL_Get (STATE, INTERNAL_ESMF_STATE=INTSTATE, __RC__)
+    call MAPL_GetPointer(Import, var3d_1, 'GOCART_BCphilic', rc=status)
+    VERIFY_(STATUS)
+    call MAPL_GetPointer(IntState, var3d_2, 'TRC_BCPI', rc=status)
+    VERIFY_(STATUS)
+    if ( mapl_am_i_root() ) then
+       print *, ">> GEOSCHEM: Run2_: start"
+       print *, ">> GEOSCHEM: --> GOCART_BCphilic (20,20,1): ", &
+                var3d_1(20,20,1) 
+       print *, ">> GEOSCHEM: --> TRC_BCPI (20,20,1): ", var3d_2(20,20,1)
+       print *, ">> GEOSCHEM: --> calling Run_"
+    endif
+
     ! Call run routine stage 2
     CALL Run_ ( GC, IMPORT, EXPORT, CLOCK, PHASE, __RC__ )
+
+    ! ewl debugging
+    if ( mapl_am_i_root() ) then
+       print *, ">> GEOSCHEM: TRC_BCPI (20,20,1): ", var3d_2(20,20,1)
+       print *, ">> GEOSCHEM: Run2_: end"
+    endif
 
     ! Return w/ success
     RETURN_(ESMF_SUCCESS)
@@ -3215,9 +3271,6 @@ CONTAINS
     CHARACTER(LEN=ESMF_MAXSTR)  :: RRName      ! Name of reaction name 
 !---
 
-    ! EWL: GOCART coupling testing
-    INTEGER :: id_BCPI
-
     __Iam__('Run_')
 
     !=======================================================================
@@ -3232,9 +3285,6 @@ CONTAINS
 
     ! Identify this routine to MAPL
     Iam = TRIM(compName)//'::Run_'
-
-    ! EWL: GOCART coupling testing
-    id_BCPI = IND_('BCPI')
 
     ! Get my MAPL_Generic state
     ! -------------------------
@@ -3349,18 +3399,6 @@ CONTAINS
 
 ! GCHP ends the (if FIRST) block and then links HEMCO state to GC objects:
    ENDIF
-
-! EWL: See if I actually have access to GOCART BC
-    !if ( w_c%reg%using_GEOSCHEM_BC ) then
-       Ptr3d => NULL()
-       call MAPL_GetPointer(IMPORT, Ptr3d,'GOCART_BCphilic', &
-                            notFoundOk=.TRUE., __RC__)
-       if ( MAPL_AM_I_ROOT() .and. ASSOCIATED(Ptr3d) ) then
-          print *, "ewl: GOCART BCPI in GEOS-Chem (20,20,1): ", Ptr3d(20,20,1)
-          Ptr3d => NULL()
-       endif
-    !endif
-
 
        ! Link HEMCO state to gridcomp objects
        ASSERT_(ASSOCIATED(HcoState))
@@ -4131,14 +4169,6 @@ CONTAINS
 !          Int2Spc(I)%Internal = State_Chm%Species(:,:,:,Int2Spc(I)%TrcID)
 !       ENDDO
 !---
-
-       !=======================================================================
-       ! Update the exports that are input to GOCART and used to update
-       ! chem_bundle used in GEOS. Need to add a logical to only do this
-       ! if connecting GEOS-Chem to GOCART as a pass-through.
-       !=======================================================================
-       CALL MapGC2GOCART_SetExports( am_I_Root, Input_Opt, State_Met, &
-                                     State_Chm, IntState, Export, RC )
 
        CALL MAPL_TimerOff(STATE, "CP_AFTR")
        

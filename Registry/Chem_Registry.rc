@@ -290,33 +290,6 @@
   FJX_EXTRAL_NLEVS                | 1              | xy  |   |    |   |   |     | FAST-JX_EXTRAL_layers 
   FJX_EXTRAL_NITER                | 1              | xy  |   |    |   |   |     | FAST-JX_EXTRAL_iterations
   GCC_SUNCOS                      | 1              | xy  |   |    |   |   |     | SUNCOS 
-# Connection with GOCART (ewl)
-# NOTE: these exports should be set by mapping from GEOS-Chem species values at the end of each timestep
-#       and should be in the form that will be passed to the GOCART chem_bundle for use elsewhere in GEOS.
-   GEOSCHEM_BCphobic              |  kg/kg         | xyz | C |    |   |   |     | Hydrophobic Black Carbon Mixing Ratio
-   GEOSCHEM_BCphilic              |  kg/kg         | xyz | C |    |   |   |     | Hydrophilic Black Carbon Mixing Ratio
-   GEOSCHEM_CO                    |  mol/mol       | xyz | C |    |   |   |     | Carbon Monoxide (All Sources)
-   GEOSCHEM_du001                 |  kg/kg         | xyz | C |    |   |   |     | Dust Mixing Ratio (bin 001)
-   GEOSCHEM_du002                 |  kg/kg         | xyz | C |    |   |   |     | Dust Mixing Ratio (bin 002)
-   GEOSCHEM_du003                 |  kg/kg         | xyz | C |    |   |   |     | Dust Mixing Ratio (bin 003)
-   GEOSCHEM_du004                 |  kg/kg         | xyz | C |    |   |   |     | Dust Mixing Ratio (bin 004)
-   GEOSCHEM_du005                 |  kg/kg         | xyz | C |    |   |   |     | Dust Mixing Ratio (bin 005)
-   GEOSCHEM_NH3                   |  kg/kg         | xyz | C |    |   |   |     | Ammonia (NH3, gas phase)
-   GEOSCHEM_NH4a                  |  kg/kg         | xyz | C |    |   |   |     | Ammonium ion (NH4+, aerosol phase)
-   GEOSCHEM_NO3an1                |  kg/kg         | xyz | C |    |   |   |     | Nitrate size bin 001
-   GEOSCHEM_NO3an2                |  kg/kg         | xyz | C |    |   |   |     | Nitrate size bin 002
-   GEOSCHEM_NO3an3                |  kg/kg         | xyz | C |    |   |   |     | Nitrate size bin 003
-   GEOSCHEM_OCphobic              |  kg/kg         | xyz | C |    |   |   |     | Hydrophobic Organic Carbon (Particulate Matter)
-   GEOSCHEM_OCphilic              |  kg/kg         | xyz | C |    |   |   |     | Hydrophilic Organic Carbon (Particulate Matter)
-   GEOSCHEM_ss001                 |  kg/kg         | xyz | C |    |   |   |     | Sea Salt Mixing Ratio (bin 001)
-   GEOSCHEM_ss002                 |  kg/kg         | xyz | C |    |   |   |     | Sea Salt Mixing Ratio (bin 002)
-   GEOSCHEM_ss003                 |  kg/kg         | xyz | C |    |   |   |     | Sea Salt Mixing Ratio (bin 003)
-   GEOSCHEM_ss004                 |  kg/kg         | xyz | C |    |   |   |     | Sea Salt Mixing Ratio (bin 004)
-   GEOSCHEM_ss005                 |  kg/kg         | xyz | C |    |   |   |     | Sea Salt Mixing Ratio (bin 005)
-   GEOSCHEM_DMS                   |  kg/kg         | xyz | C |    |   |   |     | Dimethylsulphide
-   GEOSCHEM_SO2                   |  kg/kg         | xyz | C |    |   |   |     | Sulphur dioxide
-   GEOSCHEM_SO4                   |  kg/kg         | xyz | C |    |   |   |     | Sulphate aerosol
-   GEOSCHEM_MSA                   |  kg/kg         | xyz | C |    |   |   |     | Methanesulphonic acid
 # --------------------------------|----------------|-----|---|----|---|---|-----|---------------------------------
 </ExportSpec>
 #                               --------------
