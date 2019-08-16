@@ -100,6 +100,7 @@ printf "\nChoose simulation type:\n"
 printf "  1. TransportTracers\n"
 printf "  2. Standard\n"
 printf "  3. Benchmark\n"
+printf "  4. CO2\n"
 valid_sim=0
 while [ "${valid_sim}" -eq 0 ]
 do
@@ -118,6 +119,11 @@ do
 	sim_name=benchmark
 	sim_name_long=${sim_name}
 	sim_type=fullchem
+	valid_sim=1
+    elif [[ ${sim_num} = "4" ]]; then
+	sim_name=co2
+	sim_name_long=${sim_name}
+	sim_type=${sim_name}
 	valid_sim=1
     else
 	printf "Invalid simulation option. Try again.\n"
@@ -237,7 +243,7 @@ cp ./Makefile                  ${rundir}
 cp ./gitignore                 ${rundir}/.gitignore
 cp ./GCHP.rc.template          ${rundir}/GCHP.rc
 cp ./CAP.rc.template           ${rundir}/CAP.rc
-cp ./runConfig.sh.template     ${rundir}/runConfig.sh
+cp ./runConfig.sh.templates/runConfig.sh.${sim_type}        ${rundir}/runConfig.sh
 cp ./HISTORY.rc.templates/HISTORY.rc.${sim_name}            ${rundir}/HISTORY.rc
 cp ./input.geos.templates/input.geos.${sim_name}            ${rundir}/input.geos
 cp ./ExtData.rc.templates/ExtData.rc.${sim_type}            ${rundir}/ExtData.rc
@@ -301,6 +307,9 @@ elif [ "${sim_name}" == "benchmark" ]; then
 elif [ "${sim_type}" == "fullchem" ]; then
     startdate="20160701"
     enddate="20160701"
+elif [ "${sim_type}" == "co2" ]; then
+    startdate="20150101"
+    enddate="20150108"
 else
     printf "\nError: Start date is not defined for simulation ${sim_type}."
 fi
