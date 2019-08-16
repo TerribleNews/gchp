@@ -154,4 +154,35 @@ Do you want to track run directory changes with git? (y/n)
 n
 ```
 
-## To Be Continued...
+## Running GCHP
+Go to the directory you created, gchp_co2 and copy the correct restart file and CO2 emissions:
+```
+$ rm initial_GEOSChem_rst.c*.nc
+$ cp /nobackupp13/clee59/SHARED/* ./
+```
+
+Then copy and edit the run script:
+```
+$ cp runScriptSamples/gchp.pleiades.run ./
+```
+
+Inside `gchp.pleiades.run` change the email address and job account group at the top of the script to match your email and job account
+```
+#PBS -W group_list=[YOUR PBS ACCOUNT GROUP ID]
+#PBS -m e
+#PBS -M user@email.com
+```
+
+Then submit:
+```
+$ qsub gchp.pleiades.run
+```
+
+The output netcdf files will be under OutputDir. I have configured the default output to include the v/v concentrations of the 3 CO2 "species" in the sample file I got from Seb and the meterological variables I thought would be necessary to interpret them. 
+
+## Further information
+I intend to make some of these steps less onerous in future, and this is still just a development branch of GCHP so things will change. I will do my best to keep this README up-to-date.
+
+For further information about running GCHP, checkout the [wiki](http://wiki.seas.harvard.edu/geos-chem/index.php/Getting_Started_with_GCHP)
+
+Also, feel free to email me at colin dot lee at dal dot ca

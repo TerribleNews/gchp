@@ -5,7 +5,7 @@
 #PBS -l walltime=05:00:00
 #PBS -j oe
 #PBS -W group_list=[YOUR PBS ACCOUNT GROUP ID]
-# #PBS -m e
+#PBS -m e
 #PBS -M user@email.com
 
 # to run on more nodes / processes, use 
