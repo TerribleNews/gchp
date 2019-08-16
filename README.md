@@ -1,7 +1,7 @@
 # CO2 Only GCHP on Pleaides
 ## Prereqs
 
-Pleiades already has almost all the necessary packages available in its module system. To load the appropriate modules, place the following rc file in your home directory:
+Pleiades already has almost all the necessary packages available in its module system. To load the appropriate modules, place the following text in a file called  `gchp.ifort18_sgimpi_pleiades.env` in your home directory:
 ```
 #!/bin/bash
 # Based on seastham's home/pleiades.basrch
@@ -159,6 +159,11 @@ Go to the directory you created, gchp_co2 and copy the correct restart file and 
 ```
 $ rm initial_GEOSChem_rst.c*.nc
 $ cp /nobackupp13/clee59/SHARED/* ./
+```
+
+Create a link to the environment file you created at the beginning of this README:
+```
+$ ./setEnvironment ~/gchp.ifort18_sgimpi_pleiades.env
 ```
 
 Then copy and edit the run script:

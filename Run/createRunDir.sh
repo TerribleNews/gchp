@@ -329,6 +329,16 @@ if [ "${sim_name}" == "benchmark" ]; then
     end_time="000000"    
     dYYYYMMDD="00000100"
     dHHmmSS="000000"
+elif [ "${sim_name}" == "co2" ]; then
+    total_cores=6
+    num_nodes=1
+    num_cores_per_node=6
+    grid_res=24
+    diag_freq="010000"
+    start_time="000000"
+    end_time="000000"    
+    dYYYYMMDD="00000007"
+    dHHmmSS="000000"
 else
     total_cores=6
     num_nodes=1
