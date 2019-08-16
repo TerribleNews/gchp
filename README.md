@@ -178,6 +178,22 @@ Inside `gchp.pleiades.run` change the email address and job account group at the
 #PBS -M user@email.com
 ```
 
+### Compile GCHP
+The first compile will take a long time, probably around 40 minutes give or take 20 minutes. On the head node, inside your run directory, run:
+```
+$ make build_all
+```
+
+This should end with 
+```
+###################################
+###    GCHP executable exists!  ###
+###################################
+```
+followed by some info about the run.
+
+### Submit your job
+
 Then submit:
 ```
 $ qsub gchp.pleiades.run
