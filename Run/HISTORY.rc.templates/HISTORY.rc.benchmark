@@ -4,40 +4,50 @@ CoresPerNode: 6
 VERSION: 1
 
 #==============================================================================
-# Each collection will be output on the native resolution cubed sphere grid
-# unless a different grid is defined and set for the collection. Define
-# alternative output grids, either cubed sphere or lat/lon, global
-# or regional, in the GRID_LABELS section below. Regional grids are only
-# functional for lat/lon grids. The grids provided are examples only.
+# Define output grids different from the native cubed sphere in this section.
+# Each diagnostics collection will be output on the native resolution cubed
+# sphere grid unless a different grid is configured. A few examples are
+# provided below.
 #
-# To use a grid defined in the GRID_LABEL section, include the
-# following in the collection specification further down:
+# To use a grid for a specific collection, include the 'grid_label' field
+# in the collection definition. For example, 
 #
-#   {CollectionName}.grid_label:   {GridLabelName}
+#   SpeciesConc.grid_label:   REGIONAL1x1
 #
 # If you are outputting on a lat/lon grid, be sure to specify conservative
-# regridding as well:
+# regridding. Otherwise regridding will be bi-linear.
 #
-#   {CollectionName}.conservative: 1
+#   SpeciesConc.conservative: 1
 #
 #==============================================================================
 GRID_LABELS: PE24x144-CF
              PC360x181-DC
+             REGIONAL1x1
     ::
 
+    # Example of cubed-sphere grid at c24 resolution
     PE24x144-CF.GRID_TYPE: Cubed-Sphere
     PE24x144-CF.IM_WORLD: 24
     PE24x144-CF.JM_WORLD: 144
-    PE24x144-CF.POLE: PC
-    PE24x144-CF.DATELINE: DC
     PE24x144-CF.LM: 72
 
+    # Example of lat-lon global grid at 1x1 resolution
     PC360x181-DC.GRID_TYPE: LatLon
     PC360x181-DC.IM_WORLD: 360
     PC360x181-DC.JM_WORLD: 181
     PC360x181-DC.POLE: PC
     PC360x181-DC.DATELINE: DC
     PC360x181-DC.LM: 72
+
+    # Example of lat-lon regional grid at 1x1 resolution
+    REGIONAL1x1.GRID_TYPE: LatLon
+    REGIONAL1x1.IM_WORLD: 80
+    REGIONAL1x1.JM_WORLD: 40
+    REGIONAL1x1.POLE: XY
+    REGIONAL1x1.DATELINE: XY
+    REGIONAL1x1.LON_RANGE:   0 80
+    REGIONAL1x1.LAT_RANGE: -30 10
+    REGIONAL1x1.LM: 72
 
 #==============================================================================
 # Declare collection names and toggle on/off with #
@@ -81,7 +91,7 @@ COLLECTIONS: 'AerosolMass'
   Emissions.frequency:        010000
   Emissions.duration:         010000
   Emissions.mode:             'time-averaged'
-  Emissions.fields:           'EmisACET_Total       ', 'GIGCchem',     
+  Emissions.fields:           'EmisACET_Total       ', 'GIGCchem',
                               'EmisACET_Anthro      ', 'GIGCchem',
                               'EmisACET_BioBurn     ', 'GIGCchem',
                               'EmisACET_Biogenic    ', 'GIGCchem',
@@ -148,7 +158,6 @@ COLLECTIONS: 'AerosolMass'
                               'EmisCO_Anthro        ', 'GIGCchem',
                               'EmisCO_BioBurn       ', 'GIGCchem',
                               'EmisCO_Ship          ', 'GIGCchem',
-                              'EmisCO_Monoterp      ', 'GIGCchem',
                               'EmisCO2_Total        ', 'GIGCchem',
                               'EmisCO2_Anthro       ', 'GIGCchem',
                               'EmisCO2_BioBurn      ', 'GIGCchem',
@@ -395,7 +404,7 @@ COLLECTIONS: 'AerosolMass'
                               'InvCEDS_XYLE         ', 'GIGCchem',
                               'InvGEIAnatural_NH3   ', 'GIGCchem',
                               'InvSEABIRDS_NH3      ', 'GIGCchem',
-                              'InvC2H62010anth_C2H6 ', 'GIGCchem',
+                              'InvC2H62010_C2H6     ', 'GIGCchem',
                               'InvXIAO_C3H8         ', 'GIGCchem',
                               'InvLIANG_CH2Br2      ', 'GIGCchem',
                               'InvLIANG_CHBr3       ', 'GIGCchem',
@@ -445,6 +454,7 @@ COLLECTIONS: 'AerosolMass'
                               'InvAEIC_SOAP         ', 'GIGCchem',
                               'InvPLANTDECAY_ALD2   ', 'GIGCchem',
                               'InvPLANTDECAY_EOH    ', 'GIGCchem',
+                              'InvAFCID_DST1        ', 'GIGCchem',
                               'InvOFFLINEDUST_DST1  ', 'GIGCchem',
                               'InvOFFLINEDUST_DST2  ', 'GIGCchem',
                               'InvOFFLINEDUST_DST3  ', 'GIGCchem',
@@ -454,21 +464,13 @@ COLLECTIONS: 'AerosolMass'
                               'InvOFFLINEBIOVOC_C2H4', 'GIGCchem',
                               'InvOFFLINEBIOVOC_EOH ', 'GIGCchem',
                               'InvOFFLINEBIOVOC_ISOP', 'GIGCchem',
+                              'InvOFFLINEBIOVOC_LIMO', 'GIGCchem',
+                              'InvOFFLINEBIOVOC_MTPA', 'GIGCchem',
+                              'InvOFFLINEBIOVOC_MTPO', 'GIGCchem',
                               'InvOFFLINEBIOVOC_PRPE', 'GIGCchem',
+                              'InvOFFLINEBIOVOC_SESQ', 'GIGCchem',
                               'InvOFFLINEBIOVOC_SOAP', 'GIGCchem',
                               'InvOFFLINEBIOVOC_SOAS', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_CO  ', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_APIN', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_BPIN', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_SABI', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_CARE', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_MYRC', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_OCIM', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_OMON', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_LIMO', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_FARN', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_BCAR', 'GIGCchem',
-                              'InvOFFLINEBIOVOC_OSQT', 'GIGCchem',
                               'InvOFFLINESEASALT_Br2   ', 'GIGCchem',
                               'InvOFFLINESEASALT_BrSALA', 'GIGCchem',
                               'InvOFFLINESEASALT_BrSALC', 'GIGCchem',
@@ -510,7 +512,7 @@ COLLECTIONS: 'AerosolMass'
                               'InvGFED_TOLU         ', 'GIGCchem',
                               'InvGFED_XYLE         ', 'GIGCchem',
                               'InvVOLCANOerupt_SO2  ', 'GIGCchem',
-                              'InvVOLCANdegas_SO2   ', 'GIGCchem',
+                              'InvVOLCANOdegas_SO2  ', 'GIGCchem',
                               'InvIODINE_HOI        ', 'GIGCchem',
                               'InvIODINE_I2         ', 'GIGCchem',
 ::

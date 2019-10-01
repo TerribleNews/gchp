@@ -72,10 +72,12 @@ if [[ -z "${GFTL}" ]]; then
     printf "\n         $ git clone https://github.com/Goddard-Fortran-Ecosystem/gFTL"
     printf "\n         $ cd gFTL"
     printf "\n         $ git checkout v1.0.0"
-    printf "\n         $ cmake . -DCMAKE_INSTALL_PREFIX=."
+    printf "\n         $ mkdir build"
+    printf "\n         $ cd build"
+    printf "\n         $ cmake .. -DCMAKE_INSTALL_PREFIX=../install"
     printf "\n         $ make install"
-    printf "\n      3. Verify success by checking that include/templates and include/types exist\n" 
-    printf "\nEnter path for gFTL:\n"
+    printf "\n      3. Verify success by checking that gFTL/install/include/templates and gFTL/install/include/types exist\n" 
+    printf "\nEnter path for gFTL/install:\n"
     valid_path=0
     while [ "$valid_path" -eq 0 ]
     do
@@ -285,11 +287,13 @@ sed -i -e "s|{MET}|${met_name}|"             ${rundir}/input.geos
 sed -i -e "s|{DATA_ROOT}|${GC_DATA_ROOT}|"   ${rundir}/HEMCO_Config.rc
 sed -i -e "s|{NATIVE_RES}|${met_native}|"    ${rundir}/HEMCO_Config.rc
 sed -i -e "s|{LATRES}|${met_latres}|"        ${rundir}/HEMCO_Config.rc
+sed -i -e "s|{LONRES}|${met_lonres}|"        ${rundir}/HEMCO_Config.rc
 sed -i -e "s|{MET_SOURCE}|${met_name}|"      ${rundir}/ExtData.rc # 1st in line
 sed -i -e "s|{MET_SOURCE}|${met_name}|"      ${rundir}/ExtData.rc # 2nd in line
 sed -i -e "s|{MET_RES}|${met_resolution}|"   ${rundir}/ExtData.rc
 sed -i -e "s|{NATIVE_RES}|${met_native}|"    ${rundir}/ExtData.rc
 sed -i -e "s|{LATRES}|${met_latres}|"        ${rundir}/ExtData.rc
+sed -i -e "s|{LONRES}|${met_lonres}|"        ${rundir}/ExtData.rc
 sed -i -e "s|{MET_EXT}|${met_extension}|"    ${rundir}/ExtData.rc
 sed -i -e "s|{MET_CN_YR}|${met_cn_year}|"    ${rundir}/ExtData.rc # 1st in line
 sed -i -e "s|{MET_CN_YR}|${met_cn_year}|"    ${rundir}/ExtData.rc # 2nd in line
