@@ -52,7 +52,7 @@ CS_RES={GridRes} # 24 ~ 4x5, 48 ~ 2x2.5, 90 ~ 1x1.25, 180 ~ 1/2 deg, 360 ~ 1/4 d
 #
 # WARNING: Turning on debug prints significantly slows down the model!
 #
-MAPL_DEBUG_LEVEL=0   
+MAPL_DEBUG_LEVEL=0
 
 #------------------------------------------------
 #    Simulation Start/End/Duration
@@ -167,7 +167,7 @@ WetLossLS_mode=${common_mode}
 # on gcgrid do not contain HEMCO variables which will have the same effect
 # as turning the HEMCO restart file option off in GC classic. However, all 
 # output restart files will contain HEMCO restart variables for your next run.
-INITIAL_RESTART=initial_GEOSChem_rst.c${CS_RES}_{SIMULATION}.nc
+INITIAL_RESTART=initial_GEOSChem_rst.c${CS_RES}_cmsf.nc
 
 # You can specify a custom initial restart file here to overwrite:
 # INITIAL_RESTART=your_restart_filename_here

@@ -196,10 +196,16 @@ Warnings:                    1
 ### BEGIN SECTION BASE EMISSIONS 
 ###############################################################################
 
-# ExtNr	Name sourceFile	sourceVar sourceTime C/R/E SrcDim SrcUnit Species ScalIDs Cat Hier
-0 GPP_Global       fake.nc GPP_Glo    2015/1-12/1/0 C xy kg/m2/s CO2GlbGPP     920 1 1 
-0 Resp_Global      fake.nc Resp_Glo   2015/1-12/1/0 C xy kg/m2/s CO2GlbResp    -   1 1 
-0 Fire_Global      fake.nc Fire_Glo   2015/1-12/1/0 C xy kg/m2/s CO2GlbBB      -   1 1 
+# ExtNr Name sourceFile sourceVar sourceTime C/R/E SrcDim SrcUnit Species ScalIDs Cat Hier
+#0 GPP_Global       fake.nc GPP_Glo    2015/1-12/1/0 C xy kg/m2/s CO2          920 1 1 
+#0 Resp_Global      fake.nc Resp_Glo   2015/1-12/1/0 C xy kg/m2/s CO2          -   1 1 
+#0 Fire_Global      fake.nc Fire_Glo   2015/1-12/1/0 C xy kg/m2/s CO2          -   1 1 
+0 CMSF_CO2_FF      fake.nc CO2_Flux   2000-2019/1-12/1-31/0-23   RF xy kgC/km2/s  CO2 - 101 1
+0 CMSF_CO2_OCEAN   fake.nc CO2_Flux   2010-2019/1-12/1/0         RF xy kgC/km2/s  CO2 - 102 1
+0 CMSF_CO2_BIO     fake.nc CO2_Flux   2010-2019/1-12/1-31/0-23   RF xy kgC/km2/s  CO2 - 103 1
+0 CMSF_CO2_BF      fake.nc CO2_Flux   2010-2019/1-12/1/0         RF xy kgC/km2/s  CO2 - 104 1
+0 CMSF_CO2_BN      fake.nc CO2_Flux   2000-2019/1-12/1/0         RF xy kgC/km2/s  CO2 - 105 1
+
 
 
 #==============================================================================

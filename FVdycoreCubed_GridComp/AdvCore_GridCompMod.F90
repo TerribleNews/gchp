@@ -674,7 +674,7 @@ contains
                                        FV_Atm(1)%npx, FV_Atm(1)%npy,        &
                                        FV_Atm(1)%npz,                       &
                                        NQ, hord_tr, kord_tr, q_split,       &
-                                       k_split, dt, z_tracer, fill)
+                                       k_split, dt, z_tracer, fv_atm(1)%flagstruct%fill)
 
          endif
 

@@ -33,9 +33,12 @@
 ###############################################################################
 ###### CMS-Flux emissions                                                 #####
 ###############################################################################
-EmisCO2_GPP        CO2GlbGPP  0     1   1    2  kg/m2/s  CO2_emission_gross_primary_productivity
-EmisCO2_BB         CO2GlbBB   0     1   1    2  kg/m2/s  CO2_emission_bioass_burning
-EmisCO2_Resp       CO2GlbResp 0     1   1    2  kg/m2/s  CO2_emission_respiration
+# EmisCO2_Total       CO2     0    -1  -1    2  kg/m2/s  CO2_emission_flux_from_all_sectors
+EmisCO2_Fossil      CO2     0   101  -1    2  kg/m2/s  CO2_emission_flux_from_fossil_fuels
+EmisCO2_Ocean       CO2     0   102  -1    2  kg/m2/s  CO2_emission_flux_from_oceans
+EmisCO2_Biological  CO2     0   103  -1    2  kg/m2/s  CO2_emission_flux_from_biological_activity
+EmisCO2_Biofuel     CO2     0   104  -1    2  kg/m2/s  CO2_emission_flux_from_biofuels
+EmisCO2_Bionet      CO2     0   105  -1    2  kg/m2/s  CO2_emission_flux_from_bionet
 
 ###############################################################################
 #####   ACET emissions                                                    #####

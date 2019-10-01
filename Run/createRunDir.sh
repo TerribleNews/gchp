@@ -308,8 +308,8 @@ elif [ "${sim_type}" == "fullchem" ]; then
     startdate="20160701"
     enddate="20160701"
 elif [ "${sim_type}" == "co2" ]; then
-    startdate="20150101"
-    enddate="20150108"
+    startdate="20140901"
+    enddate="20141001"
 else
     printf "\nError: Start date is not defined for simulation ${sim_type}."
 fi
@@ -337,7 +337,7 @@ elif [ "${sim_name}" == "co2" ]; then
     diag_freq="010000"
     start_time="000000"
     end_time="000000"    
-    dYYYYMMDD="00000007"
+    dYYYYMMDD="00000030"
     dHHmmSS="000000"
 else
     total_cores=6
@@ -351,12 +351,15 @@ else
     dHHmmSS="010000"
 fi
 diag_dur=${diag_freq}
+if [ "${sim_name}" == "co2" ]; then
+    diag_dur="240000"
+fi
 sed -i -e "s|{TotalCores}|${total_cores}|"             ${rundir}/runConfig.sh
 sed -i -e "s|{NumNodes}|${num_nodes}|"                 ${rundir}/runConfig.sh
 sed -i -e "s|{NumCoresPerNode}|${num_cores_per_node}|" ${rundir}/runConfig.sh
 sed -i -e "s|{GridRes}|${grid_res}|"                   ${rundir}/runConfig.sh
-sed -i -e "s|{DiagFreq}|${diag_dur}|"                  ${rundir}/runConfig.sh
-sed -i -e "s|{DiagDur}|${diag_freq}|"                  ${rundir}/runConfig.sh
+sed -i -e "s|{DiagFreq}|${diag_freq}|"                  ${rundir}/runConfig.sh
+sed -i -e "s|{DiagDur}|${diag_dur}|"                  ${rundir}/runConfig.sh
 sed -i -e "s|{TIME1}|${start_time}|"     ${rundir}/runConfig.sh
 sed -i -e "s|{TIME2}|${end_time}|"       ${rundir}/runConfig.sh
 sed -i -e "s|{dYYYYMMDD}|${dYYYYMMDD}|"  ${rundir}/runConfig.sh

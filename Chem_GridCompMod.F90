@@ -3801,9 +3801,9 @@ CONTAINS
        
        ! Fix negatives!
        ! These can be brought in as an artifact of convection.
-       WHERE ( State_Chm%Species < 0.0e0 )
-          State_Chm%Species = 1.0e-36
-       END WHERE 
+       ! WHERE ( State_Chm%Species < 0.0e0 )
+       !    State_Chm%Species = 1.0e-36
+       ! END WHERE 
        
        ! Execute GEOS-Chem if it's time to run it
        IF ( IsRunTime ) THEN

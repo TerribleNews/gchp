@@ -81,9 +81,12 @@ COLLECTIONS: #'AerosolMass'
   Emissions.frequency:        010000
   Emissions.duration:         240000
   Emissions.mode:             'time-averaged'
-  Emissions.fields:           'EmisCO2_BB         ', 'GIGCchem',     
-                              'EmisCO2_GPP        ', 'GIGCchem',
-                              'EmisCO2_Resp       ', 'GIGCchem',
+  Emissions.fields:           'EmisCO2_Total        ', 'GIGCchem',     
+                              'EmisCO2_Fossil       ', 'GIGCchem',     
+                              'EmisCO2_Ocean        ', 'GIGCchem',     
+                              'EmisCO2_Biological   ', 'GIGCchem',     
+                              'EmisCO2_Biofuel      ', 'GIGCchem',     
+                              'EmisCO2_Bionet       ', 'GIGCchem',     
 ::
 #===================================================================
 # Aerosol and PM2.5 mass
@@ -221,9 +224,7 @@ COLLECTIONS: #'AerosolMass'
   Budget.frequency:           010000
   Budget.duration:            240000
   Budget.mode:                'time-averaged'
-  Budget.fields:              'BudgetEmisDryDepFull_CO2GlbGPP  ', 'GIGCchem',  
-                              'BudgetEmisDryDepFull_CO2GlbBB   ', 'GIGCchem',  
-                              'BudgetEmisDryDepFull_CO2GlbResp ', 'GIGCchem',  
+  Budget.fields:              'BudgetEmisDryDepFull_CO2  ', 'GIGCchem',  
 ::
 #===================================================================
 # Cloud convective flux (per advected species)
@@ -779,9 +780,7 @@ COLLECTIONS: #'AerosolMass'
   SpeciesConc.frequency:  010000
   SpeciesConc.duration:   240000
   SpeciesConc.mode:       'time-averaged'
-  SpeciesConc.fields:     'SpeciesConc_CO2GlbBB   ', 'GIGCchem',
-                          'SpeciesConc_CO2GlbGPP  ', 'GIGCchem',
-                          'SpeciesConc_CO2GlbResp ', 'GIGCchem',
+  SpeciesConc.fields:     'SpeciesConc_CO2    ', 'GIGCchem',
 ::
 #===================================================================
 # State_Chm array diagnostics (see also Aerosols collection)
