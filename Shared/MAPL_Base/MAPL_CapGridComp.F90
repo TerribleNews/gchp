@@ -1003,6 +1003,23 @@ contains
        currTime = stopTime ! we want to start from the "stop time"
        call ESMF_ClockSet ( cap%clock, currTime=currTime, rc=status )
        _VERIFY(STATUS)
+
+       ! We also have to do this for the History clock...?
+       ! Reverse the direction of clock. Now the calls to ESMF_ClockAdvance
+       ! would tick the clock backwards
+       call ESMF_ClockSet ( cap%clock_hist, direction=ESMF_DIRECTION_REVERSE, &
+                            rc=status )
+       _VERIFY(STATUS)
+       
+       ! Also, for this example, we need to move current time to the end
+       ! In the adjoint code this step might not be needed,
+       ! since most likely you already would be at the stop time
+       call ESMF_ClockGet ( cap%clock_hist, stopTime=stopTime, rc=status )
+       _VERIFY(STATUS)
+       currTime = stopTime ! we want to start from the "stop time"
+       call ESMF_ClockSet ( cap%clock_hist, currTime=currTime, rc=status )
+       _VERIFY(STATUS)
+
     endif
 
     if (.not. cap%printspec > 0) then
@@ -1345,7 +1362,7 @@ contains
     _ASSERT(NUM_DT>=0, 'NUM_DT should be >= 0.')
     _ASSERT(DEN_DT> 0, 'DEN_DT should be > 0.')
     _ASSERT(NUM_DT<DEN_DT, 'NUM_DT should be < DEN_DT')
-    _ASSERT(HEARTBEAT_DT>=0, 'HEARTBEAT_DT should be >= 0.')
+    !_ASSERT(HEARTBEAT_DT>=0, 'HEARTBEAT_DT should be >= 0.')
 
     ! initialize calendar to be Gregorian type
     ! ----------------------------------------
@@ -1442,6 +1459,8 @@ contains
          startTime = currTime, &
          rc = STATUS  )
     _VERIFY(STATUS)
+
+    if (endTime < startTime) duration = duration * -1
 
     stopTime = currTime + duration
 

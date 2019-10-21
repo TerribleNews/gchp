@@ -741,6 +741,7 @@ CONTAINS
     ! Loop over the History Exports list
     current => HistoryConfig%HistoryExportsList%head
     DO WHILE ( ASSOCIATED( current ) )
+       
 
        IF ( current%rank == 2 ) THEN
           IF ( ASSOCIATED ( current%GCStateData2d ) ) THEN

@@ -1230,17 +1230,30 @@ recursive subroutine MAPL_GenericInitialize ( GC, IMPORT, EXPORT, CLOCK, RC )
         H = HH, M = MM, S = SS, rc = STATUS  )
    _VERIFY(STATUS)
 
-   if (ringTime > currTime) then
-      ringTime = ringTime - (INT((ringTime - currTime)/TIMEINT)+1)*TIMEINT
-   end if
+   if (timeint == ESMF_TimeIntervalAbsValue(timeint)) then
+      if (ringTime > currTime) then
+         ringTime = ringTime - (INT((ringTime - currTime)/TIMEINT)+1)*TIMEINT
+      end if
+   else
+      if (ringTime < currTime) then
+         ringTime = ringTime - (INT((ringTime - currTime)/TIMEINT)+1)*TIMEINT
+      end if
+   endif
 
    ringTime = ringTime-TSTEP ! we back off current time with clock's dt since
                              ! we advance the clock AFTER run method
 
-! make sure that ringTime is not in the past
-   do while (ringTime < currTime) 
-      ringTime = ringTime + TIMEINT
-   end do
+   if (timeint == ESMF_TimeIntervalAbsValue(timeint)) then
+      ! make sure that ringTime is not in the past
+      do while (ringTime < currTime) 
+         ringTime = ringTime + TIMEINT
+      end do
+   else
+   ! make sure that ringTime is not in the past
+      do while (ringTime > currTime) 
+         ringTime = ringTime + TIMEINT
+      end do
+   endif
 
    STATE%ALARM(0) = ESMF_AlarmCreate(CLOCK = CLOCK, &
         name = trim(COMP_NAME) // "_Alarm" , &

@@ -29,6 +29,7 @@ module MAPL_GenericCplCompMod
   use MAPL_SunMod
   use MAPL_VarSpecMod
   use MAPL_ErrorHandlingMod
+  use MAPL_CommsMod, only: MAPL_AM_I_ROOT
 
   implicit none
   private
@@ -271,6 +272,11 @@ contains
     type(ESMF_Field)                      :: field
     integer                               :: cplfunc
     logical                               :: isPresent
+! debug nonsense
+    logical, parameter                    :: clock_debug = .false.
+    character(len=ESMF_MAXSTR)            :: tmpstring
+    integer                               :: year,month,day,hour,minute,second
+
 
 ! Begin...
 
@@ -375,6 +381,25 @@ contains
             sticky       = .false., &
             rc=STATUS   )
        _VERIFY(STATUS)
+       
+       if (clock_debug .and. MAPL_AM_I_ROOT()) THEN
+          call ESMF_TimeGet  ( rTime, timeString=tmpstring, rc=status ) ; _VERIFY(STATUS)
+
+          read(tmpstring( 1: 4),'(i4.4)') year
+          read(tmpstring( 6: 7),'(i2.2)') month
+          read(tmpstring( 9:10),'(i2.2)') day
+          read(tmpstring(12:13),'(i2.2)') hour
+          read(tmpstring(15:16),'(i2.2)') minute
+1010      format(1X,"RingTime: ",i4.4, "/", i2.2, "/", i2.2, "T", i2.2, ":", i2.2, "   name:", a18)
+          write(6,1010) &
+               year, month, day, hour, minute, trim(COMP_NAME)//'_'//trim(NAME)
+
+          call ESMF_TimeIntervalGet  ( tcpl, h=hour, m=minute, s=second, rc=status ) ; _VERIFY(STATUS)
+1011      format(1X,"RingInterval:  ", i3, " hours, ", i3, " minutes, ", i4, " seconds.   name:", a18)
+          write(6,1011) &
+               hour, minute, second, trim(COMP_NAME)//'_'//trim(NAME)
+          write(6,*) ' State interval: ', STATE%COUPLE_INTERVAL(J)
+       endif
 
        if(rTime == currTime) then
           call ESMF_AlarmRingerOn(STATE%TIME_TO_COUPLE(J), rc=status); _VERIFY(STATUS)
@@ -388,13 +413,20 @@ contains
             calendar=cal, RC=STATUS)
        _VERIFY(STATUS)
 
-       if (TCLR < TS) TCLR = TS
+       if (ESMF_TimeIntervalAbsValue(TCLR) < ESMF_TimeIntervalAbsValue(TS)) &
+            TCLR = TS
 
        rTime = TM0 + TOFF - TCLR
 
-       do while (rTime < currTime) 
-          rTime = rTime + TCPL
-       end do
+       if (TS == ESMF_TimeIntervalAbsValue(TS)) THEN
+          do while (rTime < currTime) 
+             rTime = rTime + TCPL
+          end do
+       else
+          do while (rTime > currTime) 
+             rTime = rTime + TCPL
+          end do
+       end if
 
        STATE%TIME_TO_CLEAR(J) = ESMF_AlarmCreate(NAME='TIME2CLEAR_' // trim(COMP_NAME) &
             // '_' // trim(NAME),   &
@@ -404,6 +436,29 @@ contains
             sticky       = .false., &
             rc=STATUS   )
        _VERIFY(STATUS)
+
+       if (clock_debug .and. MAPL_AM_I_ROOT()) THEN
+          call ESMF_TimeGet  ( rTime, timeString=tmpstring, rc=status ) ; _VERIFY(STATUS)
+
+          read(tmpstring( 1: 4),'(i4.4)') year
+          read(tmpstring( 6: 7),'(i2.2)') month
+          read(tmpstring( 9:10),'(i2.2)') day
+          read(tmpstring(12:13),'(i2.2)') hour
+          read(tmpstring(15:16),'(i2.2)') minute
+          write(6,1010) &
+               year, month, day, hour, minute, trim(COMP_NAME)//'_'//trim(NAME)
+
+          call ESMF_TimeIntervalGet  ( tcpl, h=hour, m=minute, s=second, rc=status ) ; _VERIFY(STATUS)
+          write(6,1011) &
+               hour, minute, second, trim(COMP_NAME)//'_'//trim(NAME)
+          call ESMF_TimeIntervalGet  ( tclr, h=hour, m=minute, s=second, rc=status ) ; _VERIFY(STATUS)
+          write(6,1011) &
+               hour, minute, second, 'CLR_'//trim(COMP_NAME)//'_'//trim(NAME)
+          call ESMF_TimeIntervalGet  ( toff, h=hour, m=minute, s=second, rc=status ) ; _VERIFY(STATUS)
+          write(6,1011) &
+               hour, minute, second, 'TOFF_'//trim(COMP_NAME)//'_'//trim(NAME)
+          write(6,*) ' State interval: ', STATE%COUPLE_INTERVAL(J)
+       endif
 
        if(rTime == currTime) then
           call ESMF_AlarmRingerOn(STATE%TIME_TO_CLEAR(J), rc=status); _VERIFY(STATUS)

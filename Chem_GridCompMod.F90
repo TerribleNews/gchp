@@ -4922,7 +4922,7 @@ CONTAINS
         CALL ESMF_TimeIntervalGet( chemInterval, s_r8=dt_r8, __RC__ )
         tsChem = real(dt_r8)
 
-        IF(tsChem < tsDyn) THEN
+        IF(abs(tsChem) < abs(tsDyn)) THEN
            IF( MAPL_AM_I_ROOT() ) THEN
 #if defined( MODEL_GEOS )
               WRITE(6,*) 'GEOSCHEMCHEM_DT cannot be less than RUN_DT'

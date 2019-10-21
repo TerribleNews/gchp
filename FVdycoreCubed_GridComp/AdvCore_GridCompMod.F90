@@ -545,6 +545,9 @@ contains
       character(len=ESMF_MAXSTR)    :: fieldName
       type(ESMF_TypeKind_Flag)      :: kind
 
+!     reverse time debug info
+      integer, parameter                :: DI = 3, DJ = 4, DL = 5
+
 ! Get my name and set-up traceback handle
 ! ---------------------------------------
 
@@ -664,6 +667,8 @@ contains
          !------------------
          if (AdvCore_Advection>0) then
          call WRITE_PARALLEL("offline_tracer_advection")
+         call WRITE_PARALLEL("DryPLE0(debug) = ", DryPLE0(DI,DJ,DL))
+         call WRITE_PARALLEL("DryPLE1(debug) = ", DryPLE0(DI,DJ,DL))
          call offline_tracer_advection(TRACERS, DryPLE0, DryPLE1, MFX, MFY, &
                                        CX, CY,                              &
                                        fv_atm(1)%gridstruct,                &
