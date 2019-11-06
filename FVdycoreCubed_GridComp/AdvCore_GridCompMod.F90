@@ -667,8 +667,8 @@ contains
          !------------------
          if (AdvCore_Advection>0) then
          call WRITE_PARALLEL("offline_tracer_advection")
-         call WRITE_PARALLEL("DryPLE0(debug) = ", DryPLE0(DI,DJ,DL))
-         call WRITE_PARALLEL("DryPLE1(debug) = ", DryPLE0(DI,DJ,DL))
+         call WRITE_PARALLEL(DryPLE0(DI,DJ,DL), format='("DryPLE0(debug) = ", e24.18)')
+         call WRITE_PARALLEL(DryPLE1(DI,DJ,DL), format='("DryPLE1(debug) = ", e24.18)')
          call offline_tracer_advection(TRACERS, DryPLE0, DryPLE1, MFX, MFY, &
                                        CX, CY,                              &
                                        fv_atm(1)%gridstruct,                &

@@ -413,7 +413,7 @@ CONTAINS
     USE Pressure_Mod,       ONLY : Accept_External_Pedge
     USE State_Chm_Mod,      ONLY : IND_
     USE Time_Mod,           ONLY : Accept_External_Date_Time
-    USE UnitConv_Mod,       ONLY : Convert_Spc_Units
+    USE UnitConv_Mod,       ONLY : Convert_Spc_Units, Print_Global_Species_Kg
 
     ! Diagnostics
     USE Diagnostics_Mod,    ONLY : Set_Diagnostics_EndofTimestep
@@ -534,6 +534,9 @@ CONTAINS
 #if defined( MODEL_GEOS )
     LOGICAL, SAVE                  :: LSETH2O_orig
 #endif
+
+    ! Debug variables
+    INTEGER, parameter             :: I_DBG = 6, J_DBG = 5, L_DBG=1
 
     !=======================================================================
     ! GIGC_CHUNK_RUN begins here 
@@ -746,6 +749,9 @@ CONTAINS
        ENDDO
     ENDIF
 #endif
+    if (.not. first) &
+    CALL GIGC_PRINT_MET( am_I_root, I_DBG, J_DBG, L_DBG, Input_Opt,&
+         State_Grid, State_Met, trim(Iam) // ' before first unit conversion.', RC)
     
     ! Convert to dry mixing ratio
     CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Chm, State_Grid, &
@@ -1344,4 +1350,95 @@ CONTAINS
   END SUBROUTINE SET_OZONOPAUSE
 !EOC
 #endif
+
+!BOP
+  SUBROUTINE GIGC_PRINT_MET(am_I_Root, I, J, L,         &
+                            Input_Opt, State_Grid, State_Met, LOC, RC )
+
+!
+! !USES:
+!
+    USE State_Met_Mod,        ONLY : MetState
+    USE Input_Opt_Mod,        ONLY : OptInput
+    USE State_Grid_Mod,       ONLY : GrdState
+
+!
+! !INPUT PARAMETERS: 
+!
+      LOGICAL,          INTENT(IN)    :: am_I_Root ! Are we on root CPU?
+      INTEGER,          INTENT(IN)    :: I         ! Grid cell lat index
+      INTEGER,          INTENT(IN)    :: J         ! Grid cell lon index
+      INTEGER,          INTENT(IN)    :: L         ! Grid cell lev index
+      CHARACTER(LEN=*), INTENT(IN)    :: LOC       ! Call location string
+      TYPE(OptInput),   INTENT(IN)    :: Input_Opt ! Input Options object
+      TYPE(GrdState),   INTENT(IN)    :: State_Grid! Grid State object
+      TYPE(MetState),   INTENT(IN)    :: State_Met ! Meteorology State object
+!
+! !INPUT/OUTPUT PARAMETERS: 
+!
+
+!
+! !OUTPUT PARAMETERS:
+!
+      INTEGER,          INTENT(OUT)   :: RC        ! Success or failure?! 
+! !REMARKS:
+!
+! !REVISION HISTORY: 
+!EOP
+!------------------------------------------------------------------------------
+!BOC
+!
+! !LOCAL VARIABLES:
+!     
+      CHARACTER(LEN=255) :: ErrorMsg, ThisLoc
+
+
+      !=========================================================================
+      ! GIGC_PRINT_MET begins here!
+      !=========================================================================
+
+      ErrorMsg  = ''
+      ThisLoc   = ' -> at Print_Global_Species_Kg (in module ' // &
+                  'GeosUtil/unitconv_mod.F)'
+
+      ! Echo info
+      IF ( am_I_Root ) THEN
+         WRITE( 6, 100 ) TRIM( LOC )
+         WRITE( 6, 113 ) State_Grid%YMid(I,J), State_Grid%XMid(I,J)
+      ENDIF
+100   FORMAT( /, '%%%%% GIGC_PRINT_MET at ', a )
+113   FORMAT( 'Lat: ', f5.1, '   Lon: ', f5.1 )
+
+      ! Write formatted output
+      IF ( am_I_Root ) THEN
+         ! 2-D Fields
+         WRITE( 6, 114 ) 'PBLH',     State_Met%PBLH(I,J),     I, J
+         WRITE( 6, 114 ) 'PSC2_WET', State_Met%PSC2_WET(I,J), I, J
+         WRITE( 6, 114 ) 'PSC2_DRY', State_Met%PSC2_DRY(I,J), I, J
+         WRITE( 6, 114 ) 'PS1_WET',  State_Met%PS1_WET(I,J), I, J
+         WRITE( 6, 114 ) 'PS1_DRY',  State_Met%PS1_DRY(I,J), I, J
+         WRITE( 6, 114 ) 'PS2_WET',  State_Met%PS2_WET(I,J), I, J
+         WRITE( 6, 114 ) 'PS2_DRY',  State_Met%PS2_DRY(I,J), I, J
+         WRITE( 6, 114 ) 'TS',       State_Met%TS(I,J),       I, J
+         WRITE( 6, 114 ) 'U10M',     State_Met%U10M(I,J),     I, J
+         ! 3-D Fields
+         WRITE( 6, 115 ) 'CLDF',     State_Met%CLDF(I,J,L),      I, J, L
+         WRITE( 6, 115 ) 'OMEGA',    State_Met%OMEGA(I,J,L),     I, J, L
+         WRITE( 6, 115 ) 'PEDGE',    State_Met%PEDGE(I,J,L),     I, J, L
+         WRITE( 6, 115 ) 'T',        State_Met%T(I,J,L),         I, J, L
+         WRITE( 6, 115 ) 'U',        State_Met%U(I,J,L),         I, J, L
+         WRITE( 6, 115 ) 'V',        State_Met%V(I,J,L),         I, J, L
+         WRITE( 6, 115 ) 'AD',       State_Met%AD(I,J,L),        I, J, L
+         WRITE( 6, 115 ) 'PREVSPHU', State_Met%SPHU_PREV(I,J,L), I, J, L
+         WRITE( 6, 115 ) 'SPHU',     State_Met%SPHU(I,J,L),      I, J, L
+         ! terminator
+         WRITE( 6, 120 )
+      ENDIF
+ 114  FORMAT( 'Grid cell  for ', a8, ' = ', es24.16, ', I,J  = ',2I4 )
+ 115  FORMAT( 'Grid cell  for ', a8, ' = ', es24.16, ', I,J,L= ',3I4 )
+ 120  FORMAT( / )
+
+
+  END SUBROUTINE GIGC_PRINT_MET
+
 END MODULE GIGC_Chunk_Mod
