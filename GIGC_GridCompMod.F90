@@ -274,10 +274,22 @@ contains
     call MAPL_GridCreate( GC, rc=status )
     _VERIFY(STATUS)
 
+    if (MAPL_Am_I_Root()) THEN
+       WRITE(*,*) 'Before Generic Init'
+    endif
+
+    ! Try to locate a grid cell. This should only ever work on one PET
+
+
+
     ! Call Initialize for every Child
     !--------------------------------
     call MAPL_GenericInitialize ( GC, IMPORT, EXPORT, CLOCK, __RC__ )
     _VERIFY(STATUS)
+
+    if (MAPL_Am_I_Root()) THEN
+       WRITE(*,*) 'After Generic Init'
+    endif
 
     call MAPL_TimerOn(STATE,"TOTAL")
     !    call MAPL_TimerOn(STATE,"INITIALIZE")

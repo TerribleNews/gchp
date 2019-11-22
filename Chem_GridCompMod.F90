@@ -52,6 +52,7 @@ MODULE Chem_GridCompMod
   USE CMN_Size_Mod
   USE ESMF                                           ! ESMF library
   USE MAPL_Mod                                       ! MAPL library
+  USE MAPL_IOMod
   USE Charpak_Mod                                    ! String functions
   USE Hco_Types_Mod, ONLY : ConfigObj
   USE Input_Opt_Mod                                  ! Input Options obj
@@ -160,6 +161,9 @@ MODULE Chem_GridCompMod
 
   ! Memory debug level
   INTEGER                          :: MemDebugLevel
+
+  ! Model phase: fwd, TLM, ADJOINT
+  CHARACTER(LEN=ESMF_MAXSTR)       :: ModelPhase
 
 #if defined( MODEL_GEOS )
   ! GEOS-5 only
@@ -1760,6 +1764,12 @@ CONTAINS
     ! Get the memory debug level
     call ESMF_ConfigGetAttribute(GeosCF, MemDebugLevel, &
                                  Label="MEMORY_DEBUG_LEVEL:" , RC=STATUS)
+    _VERIFY(STATUS)
+
+    ! Are we running the adjoint?
+    call ESMF_ConfigGetAttribute(GeosCF, ModelPhase,            &
+                                 Label="MODEL_PHASE:" ,         &
+                                 Default="FORWARD",  RC=STATUS)
     _VERIFY(STATUS)
 
 
@@ -4850,6 +4860,8 @@ CONTAINS
     REAL                          :: elapsedHours   ! Elapsed hours of run
     REAL(ESMF_KIND_R8)            :: dt_r8          ! chemistry timestep
 
+    CHARACTER(len=ESMF_MAXSTR)    :: OUTSTR         ! Parallel write nonsense
+
     __Iam__('Extract_')
 
     !=======================================================================
@@ -5094,6 +5106,11 @@ CONTAINS
        ! Get the upper and lower bounds of on each PET using MAPL
        CALL MAPL_GridGetInterior( Grid, IL, IU, JL, JU )
 #endif
+       if (PRESENT(localPet)) THEN
+          WRITE (*,1141) localPet, IL, IU, JL, JU
+       endif
+
+1141   FORMAT(' Process ', i5, ' goes from I = ', i3, ':', i3, '   J = ', i3, ':', i3)
 
     ENDIF
 

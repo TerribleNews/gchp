@@ -95,7 +95,7 @@ CONTAINS
     USE PhysConstants,           ONLY : PI_180
     USE Pressure_Mod,            ONLY : Init_Pressure
     USE Roundoff_Mod,            ONLY : RoundOff
-    USE State_Chm_Mod,           ONLY : ChmState
+    USE State_Chm_Mod,           ONLY : ChmState, Ind_
     USE State_Diag_Mod,          ONLY : DgnState
     USE State_Grid_Mod,          ONLY : GrdState, Init_State_Grid
     USE State_Met_Mod,           ONLY : MetState
@@ -184,6 +184,14 @@ CONTAINS
     INTEGER                        :: I, J, L, STATUS
     CHARACTER(LEN=ESMF_MAXSTR)     :: Iam
     TYPE(ESMF_Config)              :: CF            ! Grid comp config object
+
+    ! Adoint variables
+    ! Local Finite Difference variables
+    REAL(fp)                       :: FD_LAT, FD_LON
+    INTEGER                        :: FD_STEP
+    CHARACTER(LEN=ESMF_MAXSTR)     :: FD_SPEC
+    REAL(fp)                       :: d, dmin
+    INTEGER                        :: imin, jmin, NFD, LFD
 
     !=======================================================================
     ! GIGC_CHUNK_INIT begins here 
@@ -277,6 +285,7 @@ CONTAINS
                            State_Chm, State_Diag, State_Grid, State_Met, RC )
     _ASSERT(RC==GC_SUCCESS, 'informative message here')
 
+
     ! Initialize other GEOS-Chem modules
     CALL GC_Init_Extra( am_I_Root, HistoryConfig%DiagList, Input_Opt,    &
                         State_Chm, State_Diag, State_Grid, RC ) 
@@ -347,6 +356,72 @@ CONTAINS
                             State_Grid, State_Met, 'v/v dry', RC )
     _ASSERT(RC==GC_SUCCESS, 'informative message here')
 #endif
+
+    call ESMF_ConfigGetAttribute(CF, FD_STEP, &
+                                 Label="FD_STEP:" , Default=-1, RC=STATUS)
+    _VERIFY(STATUS)
+    
+    if (.not. FD_STEP == -1) THEN
+       Input_Opt%IS_FD_SPOT = .true.
+       
+       call ESMF_ConfigGetAttribute(CF, FD_SPEC, &
+            Label="FD_SPEC:", RC=STATUS)
+       _VERIFY(STATUS)
+       NFD = Ind_(FD_SPEC)
+
+       call ESMF_ConfigGetAttribute(CF, FD_LAT, &
+            Label="FD_LAT:", RC=STATUS)
+       _VERIFY(STATUS)
+
+       call ESMF_ConfigGetAttribute(CF, FD_LON, &
+            Label="FD_LON:", RC=STATUS)
+       _VERIFY(STATUS)
+
+       call ESMF_ConfigGetAttribute(CF, LFD, &
+            Label="LFD:", RC=STATUS)
+       _VERIFY(STATUS)
+
+       dmin = 99999.9
+       imin = -1
+       jmin = -1
+       ! try to find lat lon grid cell closest to 44.65, -63.58 (Halifax, NS)
+       DO I = 1, state_grid%nx
+          DO J = 1, state_grid%ny
+             d = sqrt((state_grid%XMID(I,J) - FD_LON)**2 + &
+                  (state_grid%YMID(I,J) - FD_LAT)**2)
+             if (d < dmin) then
+                dmin = d
+                imin = i
+                jmin = j
+             endif
+          enddo
+       enddo
+       ! this is terrible. We need a better way to figure out if we're really in
+       ! a grid cell, bbut I don't know how to do that. For now we're just hardcoding
+       ! to the value for C24 and hoping for no points near cubed-sphere face
+       ! boundaries
+       if (dmin < 3.2) then
+          write (*,1011) myPet, dmin, imin, jmin, &
+               state_grid%YMID(IMIN,JMIN), state_grid%XMID(IMIN,JMIN)
+
+          ! getting the global grid offset is possible, see Chem_GridCompMod.F90:Extract_
+          Input_Opt%IS_FD_SPOT_THIS_PET = .true.
+          Input_Opt%NFD = NFD
+          Input_Opt%IFD = IMIN
+          Input_Opt%JFD = JMIN
+          Input_Opt%LFD = LFD
+          WRITE (*, 1016) TRIM(FD_SPEC), state_chm%species(IMIN, JMIN, LFD, NFD)
+
+       end if
+1011   FORMAT('Found Halifax on PET ', i5, ' ', f7.2, &
+            ' degrees from cell ', i3, ', ', i3, ' (', f7.2, ', ', f7.2, ')')
+1012   FORMAT('Did not find Halifax on PET ', i5, ' ', f7.2,&
+            ' degrees from cell ', i3, ', ', i3, ' (', f7.2, ', ', f7.2, ')')
+1013   FORMAT('   XminOffset = ', i3, '     XmaxOffset = ', i3)
+1014   FORMAT('   YminOffset = ', i3, '     YmaxOffset = ', i3)
+1015   FORMAT('   GlobalXMid(', i3, ', ', i3, ') = (', f7.2, ', ' f7.2, ')')
+1016   FORMAT('   SPC(', a10, ', FD_SPOT) = ', e22.10)
+    ENDIF
 
     ! Return success
     RC = GC_Success
@@ -537,6 +612,10 @@ CONTAINS
 
     ! Debug variables
     INTEGER, parameter             :: I_DBG = 6, J_DBG = 5, L_DBG=1
+
+    ! Adjoint Finitie Difference Variables
+    INTEGER                        :: IFD, JFD, LFD, NFD
+    CHARACTER(len=ESMF_MAXSTR)     :: FD_SPEC
 
     !=======================================================================
     ! GIGC_CHUNK_RUN begins here 
@@ -750,8 +829,24 @@ CONTAINS
     ENDIF
 #endif
     if (.not. first) &
-    CALL GIGC_PRINT_MET( am_I_root, I_DBG, J_DBG, L_DBG, Input_Opt,&
-         State_Grid, State_Met, trim(Iam) // ' before first unit conversion.', RC)
+         CALL Print_Global_Species_Kg( am_I_Root, I_DBG, J_DBG, L_DBG, &
+                                       'CO2', Input_Opt, State_Chm,   &
+                                       State_Grid, State_Met, trim(Iam) // &
+                                       ' before first unit conversion', RC)
+    ! CALL GIGC_PRINT_MET( am_I_root, I_DBG, J_DBG, L_DBG, Input_Opt,&
+    !      State_Grid, State_Met, trim(Iam) // ' before first unit conversion.', RC)
+
+    IF (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+       FD_SPEC = transfer(state_chm%SpcData(Input_Opt%NFD)%Info%Name, FD_SPEC)
+       IFD = Input_Opt%IFD
+       JFD = Input_Opt%JFD
+       LFD = Input_Opt%LFD
+       NFD = Input_Opt%NFD
+       WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
+
+    end if
+1017   FORMAT('   SPC(', a10, ', FD_SPOT) = ', e22.10)
+
     
     ! Convert to dry mixing ratio
     CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Chm, State_Grid, &
