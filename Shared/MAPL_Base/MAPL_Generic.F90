@@ -1993,8 +1993,13 @@ recursive subroutine MAPL_GenericFinalize ( GC, IMPORT, EXPORT, CLOCK, RC )
                                LABEL="INTERNAL_HEADER:", &
                                RC=STATUS)
         _VERIFY(STATUS)
-        call MAPL_ESMFStateWriteToFile(STATE%INTERNAL,CLOCK,FILENAME, &
-             FILETYPE, STATE, hdr/=0, RC=STATUS)
+        IF (FILENAME(1:1) == '-' .or. FILENAME(1:1) == '+') THEN
+           call MAPL_ESMFStateWriteToFile(STATE%INTERNAL,CLOCK,FILENAME(2:), &
+                FILETYPE, STATE, hdr/=0, RC=STATUS)
+        else
+           call MAPL_ESMFStateWriteToFile(STATE%INTERNAL,CLOCK,FILENAME, &
+                FILETYPE, STATE, hdr/=0, RC=STATUS)
+        endif
         _VERIFY(STATUS)
      endif
 
@@ -2017,8 +2022,13 @@ recursive subroutine MAPL_GenericFinalize ( GC, IMPORT, EXPORT, CLOCK, RC )
             _ASSERT(.false.,'needs informative message')
          endif
 #endif
-        call MAPL_ESMFStateWriteToFile(IMPORT,CLOCK,FILENAME, &
-             FILETYPE, STATE, .FALSE., RC=STATUS)
+         IF (FILENAME(1:1) == '-' .or. FILENAME(1:1) == '+') THEN
+            call MAPL_ESMFStateWriteToFile(IMPORT,CLOCK,FILENAME(2:), &
+                 FILETYPE, STATE, .FALSE., RC=STATUS)
+         else
+            call MAPL_ESMFStateWriteToFile(IMPORT,CLOCK,FILENAME, &
+                 FILETYPE, STATE, .FALSE., RC=STATUS)
+         endif
         _VERIFY(STATUS)
      endif
   end if
@@ -2252,10 +2262,17 @@ subroutine MAPL_StateRecord( GC, IMPORT, EXPORT, CLOCK, RC )
         call MAPL_GetResource( STATE, FILETYPE, LABEL="DEFAULT_CHECKPOINT_TYPE:", default='pnc4', RC=STATUS )
         _VERIFY(STATUS)
      end if
-     call MAPL_ESMFStateWriteToFile(IMPORT, CLOCK, &
-                                    STATE%RECORD%IMP_FNAME, &
-                                    FILETYPE, STATE, .FALSE., &
-                                    RC=STATUS)
+     IF (STATE%RECORD%IMP_FNAME(1:1) == '-' .or. STATE%RECORD%IMP_FNAME == '+') THEN
+        call MAPL_ESMFStateWriteToFile(IMPORT, CLOCK, &
+             STATE%RECORD%IMP_FNAME(2:), &
+             FILETYPE, STATE, .FALSE., &
+             RC=STATUS)
+     else
+        call MAPL_ESMFStateWriteToFile(IMPORT, CLOCK, &
+             STATE%RECORD%IMP_FNAME, &
+             FILETYPE, STATE, .FALSE., &
+             RC=STATUS)
+     endif
      _VERIFY(STATUS)
   end if
   
@@ -2267,10 +2284,17 @@ subroutine MAPL_StateRecord( GC, IMPORT, EXPORT, CLOCK, RC )
         call MAPL_GetResource( STATE, FILETYPE, LABEL="DEFAULT_CHECKPOINT_TYPE:", default='pnc4', RC=STATUS )
         _VERIFY(STATUS)
      end if
-     call MAPL_ESMFStateWriteToFile(STATE%INTERNAL, CLOCK, &
-                                    STATE%RECORD%INT_FNAME, &
-                                    FILETYPE, STATE, hdr/=0, &
-                                    RC=STATUS)
+     if (STATE%RECORD%INT_FNAME(1:1) == '-' .or. STATE%RECORD%INT_FNAME(1:1) == '+') THEN
+        call MAPL_ESMFStateWriteToFile(STATE%INTERNAL, CLOCK, &
+             STATE%RECORD%INT_FNAME(2:), &
+             FILETYPE, STATE, hdr/=0, &
+             RC=STATUS)
+     else
+        call MAPL_ESMFStateWriteToFile(STATE%INTERNAL, CLOCK, &
+             STATE%RECORD%INT_FNAME, &
+             FILETYPE, STATE, hdr/=0, &
+             RC=STATUS)
+     endif
      _VERIFY(STATUS)
   end if
   
@@ -2470,7 +2494,12 @@ subroutine MAPL_StateRefresh( GC, IMPORT, EXPORT, CLOCK, RC )
                                      STATE%RECORD%INT_FNAME, &
                                      STATE, hdr/=0, RC=STATUS)
      _VERIFY(STATUS)
-     UNIT = GETFILE(STATE%RECORD%INT_FNAME, RC=STATUS)
+     IF (STATE%RECORD%INT_FNAME(1:1) .eq. '-' .or. &
+          STATE%RECORD%INT_FNAME(1:1) .eq. '+') THEN
+        UNIT = GETFILE(STATE%RECORD%INT_FNAME(2:), RC=STATUS)
+     else
+        UNIT = GETFILE(STATE%RECORD%INT_FNAME, RC=STATUS)
+     endif
      _VERIFY(STATUS)
      call MAPL_DestroyFile(unit = UNIT, rc=STATUS)
      _VERIFY(STATUS)

@@ -191,7 +191,12 @@ CONTAINS
     INTEGER                        :: FD_STEP
     CHARACTER(LEN=ESMF_MAXSTR)     :: FD_SPEC
     REAL(fp)                       :: d, dmin
-    INTEGER                        :: imin, jmin, NFD, LFD
+    INTEGER                        :: imin, jmin, NFD, LFD, NFD_ADJ
+    LOGICAL                        :: FD_GLOBAL
+
+    ! Model phase: fwd, TLM, ADJOINT
+    CHARACTER(LEN=ESMF_MAXSTR)     :: ModelPhase
+
 
     !=======================================================================
     ! GIGC_CHUNK_INIT begins here 
@@ -357,17 +362,40 @@ CONTAINS
     _ASSERT(RC==GC_SUCCESS, 'informative message here')
 #endif
 
+
+    ! Are we running the adjoint?
+    call ESMF_ConfigGetAttribute(CF, ModelPhase,            &
+                                 Label="MODEL_PHASE:" ,         &
+                                 Default="FORWARD",  RC=STATUS)
+    _VERIFY(STATUS)
+    call WRITE_PARALLEL('Checking if this is adjoint. Model phase = "' // ModelPhase // '"')
+    input_opt%IS_ADJOINT = .FALSE.
+    if (TRIM(ModelPhase) .eq. 'ADJOINT') THEN
+       call WRITE_PARALLEL('Yes! Setting IS_ADJOINT to true.')
+       input_opt%IS_ADJOINT = .TRUE.
+    endif
+
     call ESMF_ConfigGetAttribute(CF, FD_STEP, &
                                  Label="FD_STEP:" , Default=-1, RC=STATUS)
     _VERIFY(STATUS)
     
     if (.not. FD_STEP == -1) THEN
-       Input_Opt%IS_FD_SPOT = .true.
-       
+       Input_Opt%FD_STEP = FD_STEP
+
+       call ESMF_ConfigGetAttribute(CF, FD_GLOBAL, &
+            Label="FD_GLOBAL:" , Default=.false., RC=STATUS)
+       _VERIFY(STATUS)
+
+       Input_Opt%IS_FD_GLOBAL = FD_GLOBAL
+
+       if (.not. FD_GLOBAL) &
+            Input_Opt%IS_FD_SPOT = .true.
+
        call ESMF_ConfigGetAttribute(CF, FD_SPEC, &
             Label="FD_SPEC:", RC=STATUS)
        _VERIFY(STATUS)
        NFD = Ind_(FD_SPEC)
+       NFD_ADJ = Ind_(trim(FD_SPEC) // 'ADJ')
 
        call ESMF_ConfigGetAttribute(CF, FD_LAT, &
             Label="FD_LAT:", RC=STATUS)
@@ -380,6 +408,9 @@ CONTAINS
        call ESMF_ConfigGetAttribute(CF, LFD, &
             Label="LFD:", RC=STATUS)
        _VERIFY(STATUS)
+       
+       Input_Opt%NFD = NFD
+       Input_Opt%NFD_ADJ = NFD_ADJ
 
        dmin = 99999.9
        imin = -1
@@ -406,11 +437,12 @@ CONTAINS
 
           ! getting the global grid offset is possible, see Chem_GridCompMod.F90:Extract_
           Input_Opt%IS_FD_SPOT_THIS_PET = .true.
-          Input_Opt%NFD = NFD
           Input_Opt%IFD = IMIN
           Input_Opt%JFD = JMIN
           Input_Opt%LFD = LFD
           WRITE (*, 1016) TRIM(FD_SPEC), state_chm%species(IMIN, JMIN, LFD, NFD)
+          IF (NFD_ADJ > 0) &
+               WRITE (*, 1019) TRIM(FD_SPEC), state_chm%species(IMIN, JMIN, LFD, NFD_ADJ)
 
        end if
 1011   FORMAT('Found Halifax on PET ', i5, ' ', f7.2, &
@@ -420,7 +452,8 @@ CONTAINS
 1013   FORMAT('   XminOffset = ', i3, '     XmaxOffset = ', i3)
 1014   FORMAT('   YminOffset = ', i3, '     YmaxOffset = ', i3)
 1015   FORMAT('   GlobalXMid(', i3, ', ', i3, ') = (', f7.2, ', ' f7.2, ')')
-1016   FORMAT('   SPC(', a10, ', FD_SPOT) = ', e22.10)
+1016   FORMAT('       SPC(', a10, ', FD_SPOT) = ', e22.10)
+1019   FORMAT('   SPC_ADJ(', a10, ', FD_SPOT) = ', e22.10)
     ENDIF
 
     ! Return success
@@ -500,6 +533,8 @@ CONTAINS
     USE DIAG_MOD,           ONLY : AD21
     USE HCOI_GC_MAIN_MOD,   ONLY : HCOI_GC_WriteDiagn
 #endif
+    USE Species_Mod,   ONLY : Species
+
 !
 ! !INPUT PARAMETERS:
 !
@@ -614,8 +649,13 @@ CONTAINS
     INTEGER, parameter             :: I_DBG = 6, J_DBG = 5, L_DBG=1
 
     ! Adjoint Finitie Difference Variables
-    INTEGER                        :: IFD, JFD, LFD, NFD
-    CHARACTER(len=ESMF_MAXSTR)     :: FD_SPEC
+    INTEGER                        :: IFD, JFD, LFD, NFD, NFD_ADJ, K
+#if !defined( MODEL_GEOS )
+    INTEGER                        :: N
+#endif
+    CHARACTER(len=ESMF_MAXSTR)     :: FD_SPEC, TRACNAME
+    TYPE(Species),       POINTER   :: ThisSpc
+
 
     !=======================================================================
     ! GIGC_CHUNK_RUN begins here 
@@ -835,17 +875,73 @@ CONTAINS
                                        ' before first unit conversion', RC)
     ! CALL GIGC_PRINT_MET( am_I_root, I_DBG, J_DBG, L_DBG, Input_Opt,&
     !      State_Grid, State_Met, trim(Iam) // ' before first unit conversion.', RC)
-
-    IF (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+    
+    IF (first .and. Input_Opt%IS_FD_SPOT_THIS_PET .and. .not. Input_Opt%IS_FD_GLOBAL) THEN
        FD_SPEC = transfer(state_chm%SpcData(Input_Opt%NFD)%Info%Name, FD_SPEC)
        IFD = Input_Opt%IFD
        JFD = Input_Opt%JFD
        LFD = Input_Opt%LFD
        NFD = Input_Opt%NFD
+       NFD_ADJ = Input_Opt%NFD_ADJ
        WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
+       IF (NFD_ADJ > 0) &
+            WRITE (*, 1018) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD_ADJ)
+       IF (.not. Input_Opt%IS_ADJOINT) THEN
+          IF (Input_Opt%FD_STEP .eq. 0) THEN
+             WRITE(*, *) '    Not perturbing'
+          ELSEIF (Input_Opt%FD_STEP .eq. 1) THEN
+             WRITE(*, *) '    Perturbing +0.1'
+             state_chm%species(IFD, JFD, LFD, NFD) = state_chm%species(IFD, JFD, LFD, NFD) * 1.1d0
+          ELSEIF (Input_Opt%FD_STEP .eq. 2) THEN
+             WRITE(*, *) '    Perturbing -0.1'
+             state_chm%species(IFD, JFD, LFD, NFD) = state_chm%species(IFD, JFD, LFD, NFD) * 0.9d0
+          ELSE
+             WRITE(*, *) '    FD_STEP = ', Input_Opt%FD_STEP, ' NOT SUPPORTED!'
+          ENDIF
+          WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
+       ELSE
+          IF (NFD_ADJ > 0) THEN
+             state_chm%species(:,:,:,NFD_ADJ) = 0d0
+             state_chm%species(IFD, JFD, LFD, NFD_ADJ) = 1.0d0
+          ENDIF
+       ENDIF
+    ENDIF
 
-    end if
-1017   FORMAT('   SPC(', a10, ', FD_SPOT) = ', e22.10)
+    IF (first .and. Input_Opt%IS_FD_GLOBAL) THEN
+       FD_SPEC = transfer(state_chm%SpcData(Input_Opt%NFD)%Info%Name, FD_SPEC)
+       NFD = Input_Opt%NFD
+       NFD_ADJ = Input_Opt%NFD_ADJ
+       IF (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+          IFD = Input_Opt%IFD
+          JFD = Input_Opt%JFD
+          LFD = Input_Opt%LFD
+          WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
+          IF (NFD_ADJ > 0) &
+               WRITE (*, 1018) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD_ADJ)
+       ENDIF
+       IF (.not. Input_Opt%IS_ADJOINT) THEN
+          IF (Input_Opt%FD_STEP .eq. 0) THEN
+             WRITE(*, *) '    Not perturbing'
+          ELSEIF (Input_Opt%FD_STEP .eq. 1) THEN
+             WRITE(*, *) '    Perturbing +0.1'
+             state_chm%species(:, :, :, NFD) = state_chm%species(:, :, :, NFD) * 1.1d0
+          ELSEIF (Input_Opt%FD_STEP .eq. 2) THEN
+             WRITE(*, *) '    Perturbing -0.1'
+             state_chm%species(:, :, :, NFD) = state_chm%species(:, :, :, NFD) * 0.9d0
+          ELSE
+             WRITE(*, *) '    FD_STEP = ', Input_Opt%FD_STEP, ' NOT SUPPORTED!'
+          ENDIF
+          IF (Input_Opt%IS_FD_SPOT_THIS_PET) &
+               WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
+       ELSE
+          IF (NFD_ADJ > 0) THEN
+             state_chm%species(:,:,:,NFD_ADJ) = 1d0
+          ENDIF
+       ENDIF
+    ENDIF
+
+1017 FORMAT('       SPC(', a10, ', FD_SPOT) = ', e22.10)
+1018   FORMAT('   SPC_ADJ(', a10, ', FD_SPOT) = ', e22.10)
 
     
     ! Convert to dry mixing ratio
@@ -1193,6 +1289,7 @@ CONTAINS
     ! adjustment in next timestep, if needed (ewl, 11/8/18)
     State_Met%SPHU_PREV = State_Met%SPHU
 #endif
+
 
     !=======================================================================
     ! Clean up

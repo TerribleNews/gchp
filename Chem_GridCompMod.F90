@@ -162,9 +162,6 @@ MODULE Chem_GridCompMod
   ! Memory debug level
   INTEGER                          :: MemDebugLevel
 
-  ! Model phase: fwd, TLM, ADJOINT
-  CHARACTER(LEN=ESMF_MAXSTR)       :: ModelPhase
-
 #if defined( MODEL_GEOS )
   ! GEOS-5 only
   ! Flag to initialize species concentrations from external fields. Read 
@@ -1766,13 +1763,6 @@ CONTAINS
                                  Label="MEMORY_DEBUG_LEVEL:" , RC=STATUS)
     _VERIFY(STATUS)
 
-    ! Are we running the adjoint?
-    call ESMF_ConfigGetAttribute(GeosCF, ModelPhase,            &
-                                 Label="MODEL_PHASE:" ,         &
-                                 Default="FORWARD",  RC=STATUS)
-    _VERIFY(STATUS)
-
-
     ! Name of logfile for stdout redirect
     CALL ESMF_ConfigGetAttribute( GeosCF, logFile,              &
                                   Label   = "STDOUT_LOGFILE:",  &
@@ -2978,9 +2968,14 @@ CONTAINS
     INTEGER                      :: IMAXLOC(1)
 
 #endif
+    INTEGER                      :: NFD, K
 
     ! First call?
     LOGICAL, SAVE                :: FIRST = .TRUE.
+    LOGICAL                      :: LAST
+    TYPE(ESMF_Time        )      :: currTime, stopTime
+    TYPE(ESMF_TimeInterval)      :: tsChemInt
+    CHARACTER(len=ESMF_MAXSTR)   :: timestring1, timestring2
 
     __Iam__('Run_')
 
@@ -3058,6 +3053,27 @@ CONTAINS
     IF ( Input_Opt%LCONV .AND. Phase /= 2 ) IsRunTime = .TRUE.
     IF ( Input_Opt%LTURB .AND. Phase /= 1 ) IsRunTime = .TRUE.
     IF ( Input_Opt%LWETD .AND. Phase /= 1 ) IsRunTime = .TRUE.
+
+    IF (IsChemTime .and. Input_opt%IS_ADJOINT) THEN
+       call WRITE_PARALLEL('  Resetting state from checkpoint file')
+       call MAPL_GenericRefresh(GC, Import, Export, Clock, RC)
+       ! Loop over all species and get info from spc db
+       DO N = 1, State_Chm%nSpecies
+          ThisSpc => State_Chm%SpcData(N)%Info
+          IF (ThisSpc%Is_Advected) CYCLE
+          IF ( TRIM(ThisSpc%Name) == '' ) CYCLE
+          IND = IND_( TRIM(ThisSpc%Name ) )
+          IF ( IND < 0 ) CYCLE
+          ! Get data from internal state and copy to species array
+          CALL MAPL_GetPointer( INTERNAL, Ptr3D_R8, TRIM(SPFX) //          &
+               TRIM(ThisSpc%Name), notFoundOK=.TRUE.,     &
+               __RC__ )
+          State_Chm%Species(:,:,:,IND) = Ptr3D_R8(:,:,State_Grid%NZ:1:-1)
+          if ( MAPL_am_I_Root()) WRITE(*,*)                                &
+               'Initialized species from INTERNAL state: ', TRIM(ThisSpc%Name)
+
+       enddo
+    ENDIF
 
 #if defined( MODEL_GEOS )
     !!! always run
@@ -3418,7 +3434,7 @@ CONTAINS
        ! (advected species will be updated with tracers)
        ! ckeller, 10/27/2014
        !=======================================================================
-       IF ( FIRST ) THEN
+       IF ( FIRST .or. Input_Opt%IS_ADJOINT) THEN
        
           ! Get Generic State
           call MAPL_GetObjectFromGC ( GC, STATE, RC=STATUS)
@@ -3429,6 +3445,7 @@ CONTAINS
           ! Loop over all species and get info from spc db
           DO N = 1, State_Chm%nSpecies
              ThisSpc => State_Chm%SpcData(N)%Info
+             IF (ThisSpc%Is_Advected) CYCLE
              IF ( TRIM(ThisSpc%Name) == '' ) CYCLE
              IND = IND_( TRIM(ThisSpc%Name ) )
              IF ( IND < 0 ) CYCLE
@@ -3894,7 +3911,7 @@ CONTAINS
                                   FrstRewind = FirstRewind,& ! First rewind?
 #endif
                                   __RC__                  )  ! Success or fail?
-       
+
              CALL MAPL_TimerOff(STATE, "DO_CHEM")
        
              ! Optional memory prints (level >= 2)
@@ -3917,7 +3934,50 @@ CONTAINS
 #if !defined( MODEL_GEOS )
              where( State_Met%HFLUX .eq. 0.) State_Met%HFLUX = 1e-5
 #endif
-          ENDIF 
+          ENDIF
+          !=======================================================================
+          ! If this is an adjoint run, we need to check for the final (first)
+          ! timestep and multiply the scaling factor adjoint by the initial concs
+          !=======================================================================
+          IF (Input_Opt%IS_ADJOINT) THEN
+             call ESMF_ClockGet(clock, currTime=currTime, stopTime=stopTime,  __RC__ )
+
+             call ESMF_TimeIntervalSet(tsChemInt, s_r8=real(tsChem, 8), __RC__ )
+
+             call ESMF_TimeGet(currTime + tsChemInt, timeString=timestring1, __RC__ )
+             call ESMF_TimeGet(stopTime, timeString=timestring2, __RC__ )
+             
+             if (am_I_Root) WRITE(*,*) '   Adjoint checking if ' // trim(timestring1) // ' == ' // trim(timestring2)
+
+             if (currTime + tsChemInt == stopTime) THEN
+
+                if (am_I_Root) WRITE(*,*) '   Adjoint multiplying SF_ADJ by ICS'
+                DO N = 1, State_Chm%nSpecies
+                   ThisSpc => State_Chm%SpcData(N)%Info
+
+                   K = INDEX(ThisSpc%Name, 'ADJ')
+                   IF (K /= 0) THEN
+                      ! Find the non-adjoint variable or this
+                      TRCNAME = ThisSpc%Name(:K-1)
+                      if (am_I_Root) WRITE(*,*) 'Searching for fwd variable ' // TRIM(TRCNAME)
+                      ! we're reusing the NFD variable here, it's not finite-difference related
+                      NFD = Ind_(TRIM(TRCNAME))
+                      _ASSERT(NFD > 0, 'Wah, couldn''t find non-adjoint variable for ' // ThisSpc%Name)
+
+                      if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+                         write(*,*) 'Before conversion ',  &
+                              State_Chm%Species(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
+                      ENDIF
+                      State_Chm%Species(:,:,:,N) = State_Chm%Species(:,:,:,N) * State_Chm%Species(:,:,:,NFD)
+                      if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+                         write(*,*) 'After conversion ',  &
+                              State_Chm%Species(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
+                      ENDIF
+                   ENDIF
+                ENDDO
+             ENDIF
+          ENDIF
+
        
        ENDIF !IsRunTime
 
@@ -4472,6 +4532,9 @@ CONTAINS
     REAL, POINTER               :: Ptr2D(:,:)      => NULL()
     REAL, POINTER               :: Ptr3D(:,:,:)    => NULL()
     REAL(ESMF_KIND_R8), POINTER :: Ptr3D_R8(:,:,:) => NULL()
+
+    INTEGER                     :: N, K, NFD
+    CHARACTER(LEN=ESMF_MAXSTR)  :: TrcName
 #endif
 
     __Iam__('Finalize_')
@@ -5106,9 +5169,9 @@ CONTAINS
        ! Get the upper and lower bounds of on each PET using MAPL
        CALL MAPL_GridGetInterior( Grid, IL, IU, JL, JU )
 #endif
-       if (PRESENT(localPet)) THEN
-          WRITE (*,1141) localPet, IL, IU, JL, JU
-       endif
+       ! if (PRESENT(localPet)) THEN
+       !    WRITE (*,1141) localPet, IL, IU, JL, JU
+       ! endif
 
 1141   FORMAT(' Process ', i5, ' goes from I = ', i3, ':', i3, '   J = ', i3, ':', i3)
 
@@ -5149,7 +5212,7 @@ CONTAINS
        ! Get the solar zenith angle and solar insolation
        ! NOTE: ZTH, SLR are allocated outside of this routine
        CALL MAPL_SunGetInsolation( LONS  = lonCtr,    &
-                                   LATS  = latCtr,    &
+            LATS  = latCtr,    &
                                    ORBIT = sunOrbit,  &
                                    ZTH   = ZTH,       &
                                    SLR   = SLR,       &
@@ -5165,6 +5228,7 @@ CONTAINS
 
   END SUBROUTINE Extract_
 !EOC
+
 #if defined( MODEL_GEOS )
 !------------------------------------------------------------------------------
 !     NASA/GSFC, Global Modeling and Assimilation Office, Code 910.1 and      !
