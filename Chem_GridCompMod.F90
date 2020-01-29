@@ -129,6 +129,10 @@ MODULE Chem_GridCompMod
 
   ! For mapping State_Chm%Tracers/Species arrays onto the internal state.
   TYPE(Int2SpcMap), POINTER        :: Int2Spc(:) => NULL()
+#ifdef ADJOINT
+  ! For mapping State_Chm%Tracers/Species arrays onto the internal state.
+  TYPE(Int2SpcMap), POINTER        :: Int2Adj(:) => NULL()
+#endif
 
   ! Objects for GEOS-Chem
   TYPE(OptInput)                   :: Input_Opt      ! Input Options
@@ -722,6 +726,22 @@ CONTAINS
               RC                 = RC  )
          NADV = NADV+1
          AdvSpc(NADV) = TRIM(SUBSTRS(1))
+
+#ifdef ADJOINT
+          if (MAPL_am_I_Root()) &
+               WRITE(*,*) '  Adding internal spec for '''//TRIM(SPFX) // TRIM(SUBSTRS(1)) // '_ADJ'''
+            call MAPL_AddInternalSpec(GC, &
+                 SHORT_NAME         = TRIM(SPFX) // TRIM(SUBSTRS(1)) // '_ADJ',  &
+                 LONG_NAME          = TRIM(SUBSTRS(1)) // ' adjoint variable',  &
+                 UNITS              = 'mol mol-1', &
+                 DIMS               = MAPL_DimsHorzVert,    &
+                 VLOCATION          = MAPL_VLocationCenter,    &
+                 PRECISION          = ESMF_KIND_R8, &
+                 FRIENDLYTO         = 'DYNAMICS:TURBULENCE:MOIST',  &
+                 RESTART            = restartAttr, &
+                 RC                 = RC  )
+#endif
+
        ELSEIF ( INDEX( LINE, 'Type of simulation' ) > 0 ) THEN
           ! Read and store simulation type
           READ( SUBSTRS(1:N), * ) SimType
@@ -799,8 +819,24 @@ CONTAINS
                VLOCATION          = MAPL_VLocationCenter,    &
                RESTART            = restartAttr,    &
                RC                 = STATUS  )
+#ifdef ADJOINT
+          if (MAPL_am_I_Root()) &
+               WRITE(*,*) '  Adding internal spec for '''//TRIM(SPFX) // TRIM(SpcName) // '_ADJ'''
+          call MAPL_AddInternalSpec(GC, &
+               SHORT_NAME         = TRIM(SPFX) // TRIM(SpcName) // '_ADJ',  &
+               LONG_NAME          = SpcName // ' adjoint variable',  &
+               UNITS              = 'mol mol-1', &
+               PRECISION          = ESMF_KIND_R8, &
+               DIMS               = MAPL_DimsHorzVert,    &
+               VLOCATION          = MAPL_VLocationCenter,    &
+               RESTART            = restartAttr,    &
+               RC                 = STATUS  )
+
+
 #endif
           Endif
+
+#endif
        ENDDO
     ENDIF
 
@@ -2400,6 +2436,56 @@ CONTAINS
 #endif
 
     ENDDO
+    
+#ifdef ADJOINT
+    if (Input_Opt%is_Adjoint) THEN
+       ! Now do the same for adjoint variables
+       ALLOCATE( Int2Adj(nFlds), STAT=STATUS )
+       _ASSERT(STATUS==0,'informative message here')
+
+       ! Do for every tracer in State_Chm
+       DO I = 1, nFlds
+
+          ! Get info about this species from the species database
+          N = State_Chm%Map_Advect(I)
+          ThisSpc => State_Chm%SpcData(N)%Info
+
+          ! Pass tracer name
+          Int2Adj(I)%TrcName = TRIM(ThisSpc%Name)
+
+          ! Get tracer ID
+          Int2Adj(I)%TrcID = IND_( TRIM(Int2Spc(I)%TrcName) )
+
+          ! If tracer ID is not valid, make sure all vars are at least defined.
+          IF ( Int2Spc(I)%TrcID <= 0 ) THEN
+             Int2Spc(I)%Internal => NULL()
+             CYCLE
+          ENDIF
+
+          ! Get internal state field
+          CALL ESMF_StateGet( INTSTATE, TRIM(SPFX) // TRIM(Int2Spc(I)%TrcName) // '_ADJ', &
+               GcFld, RC=STATUS )
+
+          ! This is mostly for testing 
+          IF ( STATUS /= ESMF_SUCCESS ) THEN
+             IF( am_I_Root ) THEN
+                WRITE(*,*) 'Cannot find in internal state: ', TRIM(SPFX) &
+                     //TRIM(Int2Spc(I)%TrcName)//'_ADJ',I
+             ENDIF
+             _ASSERT(.FALSE.,'informative message here')
+          ENDIF
+
+          ! Get pointer to field
+          CALL ESMF_FieldGet( GcFld, 0, Ptr3D_R8, __RC__ )
+          Int2Adj(I)%Internal => Ptr3D_R8
+
+          ! Free pointers
+          Ptr3D_R8 => NULL()
+          ThisSpc  => NULL()
+
+       ENDDO
+    ENDIF
+#endif
 
 #if defined( MODEL_GEOS )
     !=======================================================================
@@ -3424,6 +3510,17 @@ CONTAINS
       ! Flip in the vertical
       State_Chm%Species   = State_Chm%Species( :, :, State_Grid%NZ:1:-1, : )
 
+#ifdef ADJOINT
+      IF (Input_Opt%Is_Adjoint) THEN
+         DO I = 1, SIZE(Int2Adj,1)
+            IF ( Int2Adj(I)%TrcID <= 0 ) CYCLE
+            State_Chm%SpeciesAdj(:,:,:,Int2Adj(I)%TrcID) = Int2Adj(I)%Internal
+         ENDDO
+
+         ! Flip in the vertical
+         State_Chm%SpeciesAdj = State_Chm%SpeciesAdj( :, :, State_Grid%NZ:1:-1, : )
+      ENDIF
+#endif
        !=======================================================================
        ! On first call, also need to initialize the species from restart file.
        ! Only need to do this for species that are not advected, i.e. species
@@ -3955,24 +4052,17 @@ CONTAINS
                 DO N = 1, State_Chm%nSpecies
                    ThisSpc => State_Chm%SpcData(N)%Info
 
-                   K = INDEX(ThisSpc%Name, 'ADJ')
-                   IF (K /= 0) THEN
-                      ! Find the non-adjoint variable or this
-                      TRCNAME = ThisSpc%Name(:K-1)
-                      if (am_I_Root) WRITE(*,*) 'Searching for fwd variable ' // TRIM(TRCNAME)
-                      ! we're reusing the NFD variable here, it's not finite-difference related
-                      NFD = Ind_(TRIM(TRCNAME))
-                      _ASSERT(NFD > 0, 'Wah, couldn''t find non-adjoint variable for ' // ThisSpc%Name)
+                   ! Find the non-adjoint variable or this
+                   TRCNAME = ThisSpc%Name
 
-                      if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
-                         write(*,*) 'Before conversion ',  &
-                              State_Chm%Species(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
-                      ENDIF
-                      State_Chm%Species(:,:,:,N) = State_Chm%Species(:,:,:,N) * State_Chm%Species(:,:,:,NFD)
-                      if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
-                         write(*,*) 'After conversion ',  &
-                              State_Chm%Species(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
-                      ENDIF
+                   if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+                      write(*,*) 'Before conversion ',  &
+                           State_Chm%SpeciesAdj(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
+                   ENDIF
+                   State_Chm%SpeciesAdj(:,:,:,N) = State_Chm%SpeciesAdj(:,:,:,N) * State_Chm%Species(:,:,:,N)
+                   if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+                      write(*,*) 'After conversion ',  &
+                           State_Chm%SpeciesAdj(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
                    ENDIF
                 ENDDO
              ENDIF
@@ -3999,6 +4089,17 @@ CONTAINS
           IF ( Int2Spc(I)%TrcID <= 0 ) CYCLE
           Int2Spc(I)%Internal = State_Chm%Species(:,:,:,Int2Spc(I)%TrcID)
        ENDDO
+#ifdef ADJOINT
+       IF (Input_Opt%Is_Adjoint) THEN
+          State_Chm%SpeciesAdj = State_Chm%SpeciesAdj(:,:,State_Grid%NZ:1:-1,:)
+
+          DO I = 1, SIZE(Int2Adj,1)
+             WRITE(*,*) 'Copying adjoint ', Int2Adj(I)%TrcID, ' to ', I
+             IF ( Int2Adj(I)%TrcID <= 0 ) CYCLE
+             Int2Adj(I)%Internal = State_Chm%SpeciesAdj(:,:,:,Int2Adj(I)%TrcID)
+          ENDDO
+       ENDIF
+#endif
 #endif
 
        CALL MAPL_TimerOff(STATE, "CP_AFTR")
@@ -4702,6 +4803,16 @@ CONTAINS
        ENDDO
        DEALLOCATE(Int2Spc)
     ENDIF
+
+#ifdef ADJOINT
+    ! Free Int2Adj pointer
+    IF ( ASSOCIATED(Int2Adj) ) THEN
+       DO I=1,SIZE(Int2Adj,1)
+          Int2Adj(I)%Internal => NULL()
+       ENDDO
+       DEALLOCATE(Int2Adj)
+    ENDIF
+#endif
 
     ! Deallocate the history interface between GC States and ESMF Exports
     CALL Destroy_HistoryConfig( am_I_Root, HistoryConfig, RC )

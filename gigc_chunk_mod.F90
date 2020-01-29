@@ -185,18 +185,19 @@ CONTAINS
     CHARACTER(LEN=ESMF_MAXSTR)     :: Iam
     TYPE(ESMF_Config)              :: CF            ! Grid comp config object
 
+#ifdef ADJOINT
     ! Adoint variables
     ! Local Finite Difference variables
     REAL(fp)                       :: FD_LAT, FD_LON
     INTEGER                        :: FD_STEP
     CHARACTER(LEN=ESMF_MAXSTR)     :: FD_SPEC
     REAL(fp)                       :: d, dmin
-    INTEGER                        :: imin, jmin, NFD, LFD, NFD_ADJ
+    INTEGER                        :: imin, jmin, NFD, LFD
     LOGICAL                        :: FD_GLOBAL
 
     ! Model phase: fwd, TLM, ADJOINT
     CHARACTER(LEN=ESMF_MAXSTR)     :: ModelPhase
-
+#endif
 
     !=======================================================================
     ! GIGC_CHUNK_INIT begins here 
@@ -362,13 +363,13 @@ CONTAINS
     _ASSERT(RC==GC_SUCCESS, 'informative message here')
 #endif
 
-
+#ifdef ADJOINT
     ! Are we running the adjoint?
     call ESMF_ConfigGetAttribute(CF, ModelPhase,            &
                                  Label="MODEL_PHASE:" ,         &
                                  Default="FORWARD",  RC=STATUS)
     _VERIFY(STATUS)
-    call WRITE_PARALLEL('Checking if this is adjoint. Model phase = "' // ModelPhase // '"')
+    call WRITE_PARALLEL('Checking if this is adjoint. Model phase = "' // trim(ModelPhase) // '"')
     input_opt%IS_ADJOINT = .FALSE.
     if (TRIM(ModelPhase) .eq. 'ADJOINT') THEN
        call WRITE_PARALLEL('Yes! Setting IS_ADJOINT to true.')
@@ -379,7 +380,7 @@ CONTAINS
                                  Label="FD_STEP:" , Default=-1, RC=STATUS)
     _VERIFY(STATUS)
     
-    if (.not. FD_STEP == -1) THEN
+    if (.not. FD_STEP == -1 .or. input_opt%IS_ADJOINT) THEN
        Input_Opt%FD_STEP = FD_STEP
 
        call ESMF_ConfigGetAttribute(CF, FD_GLOBAL, &
@@ -395,7 +396,6 @@ CONTAINS
             Label="FD_SPEC:", RC=STATUS)
        _VERIFY(STATUS)
        NFD = Ind_(FD_SPEC)
-       NFD_ADJ = Ind_(trim(FD_SPEC) // 'ADJ')
 
        call ESMF_ConfigGetAttribute(CF, FD_LAT, &
             Label="FD_LAT:", RC=STATUS)
@@ -410,7 +410,6 @@ CONTAINS
        _VERIFY(STATUS)
        
        Input_Opt%NFD = NFD
-       Input_Opt%NFD_ADJ = NFD_ADJ
 
        dmin = 99999.9
        imin = -1
@@ -441,8 +440,8 @@ CONTAINS
           Input_Opt%JFD = JMIN
           Input_Opt%LFD = LFD
           WRITE (*, 1016) TRIM(FD_SPEC), state_chm%species(IMIN, JMIN, LFD, NFD)
-          IF (NFD_ADJ > 0) &
-               WRITE (*, 1019) TRIM(FD_SPEC), state_chm%species(IMIN, JMIN, LFD, NFD_ADJ)
+          IF (Input_Opt%is_adjoint) &
+               WRITE (*, 1019) TRIM(FD_SPEC), state_chm%speciesadj(IMIN, JMIN, LFD, NFD)
 
        end if
 1011   FORMAT('Found Halifax on PET ', i5, ' ', f7.2, &
@@ -455,7 +454,7 @@ CONTAINS
 1016   FORMAT('       SPC(', a10, ', FD_SPOT) = ', e22.10)
 1019   FORMAT('   SPC_ADJ(', a10, ', FD_SPOT) = ', e22.10)
     ENDIF
-
+#endif
     ! Return success
     RC = GC_Success
 
@@ -647,9 +646,10 @@ CONTAINS
 
     ! Debug variables
     INTEGER, parameter             :: I_DBG = 6, J_DBG = 5, L_DBG=1
-
+#ifdef ADJOINT
     ! Adjoint Finitie Difference Variables
-    INTEGER                        :: IFD, JFD, LFD, NFD, NFD_ADJ, K
+    INTEGER                        :: IFD, JFD, LFD, NFD
+#endif
 #if !defined( MODEL_GEOS )
     INTEGER                        :: N
 #endif
@@ -868,6 +868,7 @@ CONTAINS
        ENDDO
     ENDIF
 #endif
+#ifdef ADJOINT
     if (.not. first) &
          CALL Print_Global_Species_Kg( am_I_Root, I_DBG, J_DBG, L_DBG, &
                                        'CO2', Input_Opt, State_Chm,   &
@@ -882,11 +883,12 @@ CONTAINS
        JFD = Input_Opt%JFD
        LFD = Input_Opt%LFD
        NFD = Input_Opt%NFD
-       NFD_ADJ = Input_Opt%NFD_ADJ
        WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
-       IF (NFD_ADJ > 0) &
-            WRITE (*, 1018) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD_ADJ)
-       IF (.not. Input_Opt%IS_ADJOINT) THEN
+       IF (Input_Opt%IS_ADJOINT) THEN
+          WRITE (*, 1018) TRIM(FD_SPEC), state_chm%speciesAdj(IFD, JFD, LFD, NFD)
+          state_chm%SpeciesAdj(:,:,:,NFD) = 0d0
+          state_chm%SpeciesAdj(IFD, JFD, LFD, NFD) = 1.0d0
+       ELSE
           IF (Input_Opt%FD_STEP .eq. 0) THEN
              WRITE(*, *) '    Not perturbing'
           ELSEIF (Input_Opt%FD_STEP .eq. 1) THEN
@@ -899,25 +901,19 @@ CONTAINS
              WRITE(*, *) '    FD_STEP = ', Input_Opt%FD_STEP, ' NOT SUPPORTED!'
           ENDIF
           WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
-       ELSE
-          IF (NFD_ADJ > 0) THEN
-             state_chm%species(:,:,:,NFD_ADJ) = 0d0
-             state_chm%species(IFD, JFD, LFD, NFD_ADJ) = 1.0d0
-          ENDIF
        ENDIF
     ENDIF
 
     IF (first .and. Input_Opt%IS_FD_GLOBAL) THEN
        FD_SPEC = transfer(state_chm%SpcData(Input_Opt%NFD)%Info%Name, FD_SPEC)
        NFD = Input_Opt%NFD
-       NFD_ADJ = Input_Opt%NFD_ADJ
        IF (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
           IFD = Input_Opt%IFD
           JFD = Input_Opt%JFD
           LFD = Input_Opt%LFD
           WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
-          IF (NFD_ADJ > 0) &
-               WRITE (*, 1018) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD_ADJ)
+          IF (Input_Opt%Is_Adjoint) &
+               WRITE (*, 1018) TRIM(FD_SPEC), state_chm%SpeciesAdj(IFD, JFD, LFD, NFD)
        ENDIF
        IF (.not. Input_Opt%IS_ADJOINT) THEN
           IF (Input_Opt%FD_STEP .eq. 0) THEN
@@ -934,15 +930,15 @@ CONTAINS
           IF (Input_Opt%IS_FD_SPOT_THIS_PET) &
                WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
        ELSE
-          IF (NFD_ADJ > 0) THEN
-             state_chm%species(:,:,:,NFD_ADJ) = 1d0
+          IF (NFD > 0) THEN
+             state_chm%SpeciesAdj(:,:,:,NFD) = 1d0
           ENDIF
        ENDIF
     ENDIF
 
 1017 FORMAT('       SPC(', a10, ', FD_SPOT) = ', e22.10)
 1018   FORMAT('   SPC_ADJ(', a10, ', FD_SPOT) = ', e22.10)
-
+#endif
     
     ! Convert to dry mixing ratio
     CALL Convert_Spc_Units ( am_I_Root, Input_Opt, State_Chm, State_Grid, &

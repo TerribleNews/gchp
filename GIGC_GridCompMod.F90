@@ -91,6 +91,10 @@ contains
 
     type (ESMF_Config)                      :: CF
     logical                                 :: am_I_Root
+#ifdef ADJOINT
+    character(len=ESMF_MAXSTR)              :: ModelPhase
+    logical                                 :: isAdjoint
+#endif
 
 !=============================================================================
 
@@ -115,7 +119,20 @@ contains
                                      RC=STATUS )
    _VERIFY(STATUS)
 
-!BOP
+#ifdef ADJOINT
+    CALL ESMF_ConfigGetAttribute( CF, ModelPhase, &
+                                  Label = "MODEL_PHASE:",&
+                                  Default="FORWARD", &
+                                  __RC__ ) 
+    isAdjoint = .false.
+    if (trim(ModelPhase) == 'ADJOINT') &
+         isAdjoint = .true.
+
+    IF (.not. isAdjoint) THEN
+       IF (MAPL_Am_I_Root()) &
+            WRITE(*,*) '  Forward run, adding children in standard order. ' // ModelPhase
+
+#endif
 
 ! !IMPORT STATE:
 
@@ -138,6 +155,27 @@ contains
    ADV = MAPL_AddChild(GC, NAME='DYNAMICS',  SS=AtmosAdvSetServices,  &
                        RC=STATUS)
    _VERIFY(STATUS)
+
+#ifdef ADJOINT
+   ELSE
+      IF (MAPL_Am_I_Root()) &
+           WRITE(*,*) '  Adjoint run, adding children in reverse order. '
+   ! Add dynamics
+   ADV = MAPL_AddChild(GC, NAME='DYNAMICS',  SS=AtmosAdvSetServices,  &
+                       RC=STATUS)
+   _VERIFY(STATUS)
+
+   ! Add chemistry
+   CHEM = MAPL_AddChild(GC, NAME='GIGCchem', SS=AtmosChemSetServices, &
+                        RC=STATUS)
+   _VERIFY(STATUS)
+
+   ! Add component for deriving variables for other components
+   ECTM = MAPL_AddChild(GC, NAME='GIGCenv' , SS=EctmSetServices,      &
+                            RC=STATUS)
+   _VERIFY(STATUS)
+   ENDIF
+#endif
 
 ! Set internal connections between the children`s IMPORTS and EXPORTS
 ! -------------------------------------------------------------------
@@ -365,7 +403,10 @@ contains
    integer                             :: I, L
    integer                             :: IM, JM, LM
    real                                :: DT
-  
+
+   character(len=ESMF_MAXSTR)              :: ModelPhase
+   logical                                 :: isAdjoint
+
 !=============================================================================
 
 ! Begin... 
@@ -388,6 +429,18 @@ contains
        call ESMF_VmGetCurrent(VM, RC=STATUS)
        _VERIFY(STATUS)
     endif
+
+#ifdef ADJOINT
+    ! Check if this is an adjoint run
+    CALL ESMF_ConfigGetAttribute( CF, ModelPhase, &
+         Label = "MODEL_PHASE:",&
+         Default="FORWARD", &
+         __RC__ ) 
+    isAdjoint = .false.
+    if (trim(ModelPhase) == 'ADJOINT') &
+         isAdjoint = .true.
+#endif
+
 
     ! Start timers
     !-------------
@@ -413,6 +466,15 @@ contains
     call ESMF_ConfigGetAttribute(CF, DT, Label="RUN_DT:" , RC=STATUS)
     _VERIFY(STATUS)
 
+#ifdef ADJOINT
+    !------------------------------------------------------------
+    ! If we're doing the adoint, we should be running these in
+    ! reverse order. Possibly not the Environment module?
+    ! In cany case, this isn't working yet, so disable it for now
+    !------------------------------------------------------------
+    IF (.not. isAdjoint) THEN
+    ! IF (.true.) THEN
+#endif
     ! Cinderella Component: to derive variables for other components
     !---------------------
 
@@ -505,7 +567,104 @@ contains
                   'GIGC, after  GEOS-Chem: ', RC=STATUS )
        _VERIFY(STATUS)
     endif
+#ifdef ADJOINT
+    ELSE
 
+    ! Chemistry
+    !------------------
+
+    if ( MemDebugLevel > 0 ) THEN
+       call ESMF_VMBarrier(VM, RC=STATUS)
+       _VERIFY(STATUS)
+       call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, before GEOS-Chem: ', RC=STATUS )
+       _VERIFY(STATUS)
+    endif
+
+    call MAPL_TimerOn ( STATE, GCNames(CHEM) )
+    call ESMF_GridCompRun ( GCS(CHEM),               &
+                            importState = GIM(CHEM), &
+                            exportState = GEX(CHEM), &
+                            clock       = CLOCK,     &
+                            userRC      = STATUS );
+    _VERIFY(STATUS)
+    call MAPL_GenericRunCouplers (STATE, CHEM, CLOCK, RC=STATUS );
+    _VERIFY(STATUS)
+    call MAPL_TimerOff(STATE,GCNames(CHEM))
+
+    if ( MemDebugLevel > 0 ) THEN
+       call ESMF_VMBarrier(VM, RC=STATUS)
+       _VERIFY(STATUS)
+       call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, after  GEOS-Chem: ', RC=STATUS )
+       _VERIFY(STATUS)
+    endif
+
+    ! Dynamics & Advection
+    !------------------
+    ! SDE 2017-02-18: This needs to run even if transport is off, as it is
+    ! responsible for the pressure level edge arrays. It already has an internal
+    ! switch ("AdvCore_Advection") which can be used to prevent any actual
+    ! transport taking place by bypassing the advection calculation.
+
+    if ( MemDebugLevel > 0 ) THEN
+       call ESMF_VMBarrier(VM, RC=STATUS)
+       _VERIFY(STATUS)
+       call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, before Advection: ', RC=STATUS )
+       _VERIFY(STATUS)
+    endif
+
+    call MAPL_TimerOn ( STATE, GCNames(ADV) )
+    call ESMF_GridCompRun ( GCS(ADV),               &
+                            importState = GIM(ADV), &
+                            exportState = GEX(ADV), &
+                            clock       = CLOCK,    &
+                            userRC      = STATUS );
+    _VERIFY(STATUS)
+    call MAPL_GenericRunCouplers (STATE, ADV, CLOCK, RC=STATUS );
+    _VERIFY(STATUS)
+    call MAPL_TimerOff( STATE, GCNames(ADV) )
+
+    if ( MemDebugLevel > 0 ) THEN
+       call ESMF_VMBarrier(VM, RC=STATUS)
+       _VERIFY(STATUS)
+       call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, after  Advection: ', RC=STATUS )
+       _VERIFY(STATUS)
+    endif
+
+    ! Cinderella Component: to derive variables for other components
+    !---------------------
+
+    if ( MemDebugLevel > 0 ) THEN
+       call ESMF_VMBarrier(VM, RC=STATUS)
+       _VERIFY(STATUS)
+       call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, before GEOS_ctmE: ', RC=STATUS )
+       _VERIFY(STATUS)
+    endif
+
+    call MAPL_TimerOn ( STATE, GCNames(ECTM) )
+    call ESMF_GridCompRun ( GCS(ECTM),               &
+                            importState = GIM(ECTM), &
+                            exportState = GEX(ECTM), &
+                            clock       = CLOCK,     &
+                            userRC      = STATUS  )
+    _VERIFY(STATUS)
+
+    call MAPL_TimerOff( STATE, GCNames(ECTM) )
+
+    if ( MemDebugLevel > 0 ) THEN
+       call ESMF_VMBarrier(VM, RC=STATUS)
+       _VERIFY(STATUS)
+       call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, after  GEOS_ctmE: ', RC=STATUS )
+       _VERIFY(STATUS)
+    endif
+
+    ENDIF
+#endif
     call MAPL_TimerOff(STATE,"RUN")
     call MAPL_TimerOff(STATE,"TOTAL")
 

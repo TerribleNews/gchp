@@ -7188,10 +7188,13 @@ module MAPL_IOMod
 
                      IF (INDEX('FieldName', 'ADJ') /= 0) THEN
 
+                     call WRITE_PARALLEL("  Setting restart atr to : MAPL_RestartOptional")
+
                      ! Set restart attr to indicate bootstrapped
                      call ESMF_AttributeSet ( field, name='RESTART', &
                              value=MAPL_RestartOptional, rc=status)
                      else
+                     call WRITE_PARALLEL("  Setting restart atr to : MAPL_RestartBootstrap")
                      ! Set restart attr to indicate bootstrapped
                      call ESMF_AttributeSet ( field, name='RESTART', &
                              value=MAPL_RestartBootstrap, rc=status)
@@ -7257,10 +7260,15 @@ module MAPL_IOMod
                     call WRITE_PARALLEL("  Bootstrapping Variable: "//trim(FieldName)//" in "//trim(filename))
 
                     if (INDEX(FieldName, 'ADJ') /= 0) THEN
+                     call WRITE_PARALLEL("  Setting restart atr to : MAPL_RestartSkipInitial")
+
                     ! Set restart attr to indicate bootstrapped
                     call ESMF_AttributeSet ( field, name='RESTART', &
-                            value=MAPL_RestartSkip, rc=status)
+                            value=MAPL_RestartSkipInitial, rc=status)
                     else                       
+
+                       call WRITE_PARALLEL("  Setting restart atr to : MAPL_RestartBootstrap")
+
                     ! Set restart attr to indicate bootstrapped
                     call ESMF_AttributeSet ( field, name='RESTART', &
                             value=MAPL_RestartBootstrap, rc=status)
