@@ -545,8 +545,12 @@ contains
       character(len=ESMF_MAXSTR)    :: fieldName
       type(ESMF_TypeKind_Flag)      :: kind
 
+#ifdef ADJOINT
 !     reverse time debug info
       integer, parameter                :: DI = 3, DJ = 4, DL = 5
+      ! Debug variables
+      INTEGER, parameter             :: I_DBG = 6, J_DBG = 5, L_DBG=1
+#endif
 
 ! Get my name and set-up traceback handle
 ! ---------------------------------------
@@ -661,14 +665,18 @@ contains
                if (MASS0 /= 0.0) TMASS0=TMASS0/MASS0
             endif
          endif
-         firstRun=.false.
+         !firstRun=.false.
 
          ! Run FV3 advection
          !------------------
-         if (AdvCore_Advection>0) then
+         if (AdvCore_Advection>0 .and. .not. firstRun) then
          call WRITE_PARALLEL("offline_tracer_advection")
+#ifdef ADJOINT
          call WRITE_PARALLEL(DryPLE0(DI,DJ,DL), format='("DryPLE0(debug) = ", e24.18)')
          call WRITE_PARALLEL(DryPLE1(DI,DJ,DL), format='("DryPLE1(debug) = ", e24.18)')
+         CALL GIGC_PRINT_MET( am_I_root, I_DBG, J_DBG, L_DBG, Input_Opt,&
+              State_Grid, State_Met, trim(Iam) // ' before offline_tracer_advection.', RC)
+#endif
          call offline_tracer_advection(TRACERS, DryPLE0, DryPLE1, MFX, MFY, &
                                        CX, CY,                              &
                                        fv_atm(1)%gridstruct,                &
@@ -682,6 +690,7 @@ contains
                                        k_split, dt, z_tracer, fv_atm(1)%flagstruct%fill)
 
          endif
+         firstRun = .false.
 
          ! Update tracer mass conservation
          !-------------------------------------------------------------------------

@@ -874,8 +874,8 @@ CONTAINS
                                        'CO2', Input_Opt, State_Chm,   &
                                        State_Grid, State_Met, trim(Iam) // &
                                        ' before first unit conversion', RC)
-    ! CALL GIGC_PRINT_MET( am_I_root, I_DBG, J_DBG, L_DBG, Input_Opt,&
-    !      State_Grid, State_Met, trim(Iam) // ' before first unit conversion.', RC)
+    CALL GIGC_PRINT_MET( am_I_root, I_DBG, J_DBG, L_DBG, Input_Opt,&
+         State_Grid, State_Met, trim(Iam) // ' before first unit conversion.', RC)
     
     IF (first .and. Input_Opt%IS_FD_SPOT_THIS_PET .and. .not. Input_Opt%IS_FD_GLOBAL) THEN
        FD_SPEC = transfer(state_chm%SpcData(Input_Opt%NFD)%Info%Name, FD_SPEC)

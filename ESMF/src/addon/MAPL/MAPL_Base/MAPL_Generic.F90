@@ -1987,6 +1987,7 @@ end subroutine MAPL_GenericFinalize
               end if
 
               K=STATE%RECORD%IMP_LEN
+              WRITE(*,*) 'Writing restart with ', K, ' imports'
               if (K > 0) then
                  STATE%RECORD%IMP_FNAME(K+1:) = separator // DATESTAMP // '.bin'
               end if

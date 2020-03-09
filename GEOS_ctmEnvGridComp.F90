@@ -538,6 +538,8 @@
       integer               :: i, j
       real(r8)              :: PSDry0, PSDry1, PEdge_Bot, PEdge_Top
 
+      logical, save         :: firstRun = .true.
+
       ! Get the target components name and set-up traceback handle.
       ! -----------------------------------------------------------
       call ESMF_GridCompGet ( GC, name=COMP_NAME, Grid=esmfGrid, RC=STATUS )
@@ -663,8 +665,11 @@
       ! Use dry pressure at the start of the timestep to calculate mass
       ! fluxes. GMAO method uses mid-step UC, VC and PLE?
       PLEr8 = 1.00d0*(DryPLE0r8)
+      if (.not. firstRun) THEN
       call fv_computeMassFluxes(UCr8, VCr8, PLEr8, &
                                    MFXr8, MFYr8, CXr8, CYr8, dt)
+      endif
+      firstRun = .false.
 
       !DEALLOCATE( UCr8, VCr8, PLEr8, PLE0, PLE1, DryPLE0, DryPLE1 )
       DEALLOCATE( UCr8, VCr8, PLEr8 )

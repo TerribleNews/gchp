@@ -3140,27 +3140,6 @@ CONTAINS
     IF ( Input_Opt%LTURB .AND. Phase /= 1 ) IsRunTime = .TRUE.
     IF ( Input_Opt%LWETD .AND. Phase /= 1 ) IsRunTime = .TRUE.
 
-    IF (IsChemTime .and. Input_opt%IS_ADJOINT) THEN
-       call WRITE_PARALLEL('  Resetting state from checkpoint file')
-       call MAPL_GenericRefresh(GC, Import, Export, Clock, RC)
-       ! Loop over all species and get info from spc db
-       DO N = 1, State_Chm%nSpecies
-          ThisSpc => State_Chm%SpcData(N)%Info
-          IF (ThisSpc%Is_Advected) CYCLE
-          IF ( TRIM(ThisSpc%Name) == '' ) CYCLE
-          IND = IND_( TRIM(ThisSpc%Name ) )
-          IF ( IND < 0 ) CYCLE
-          ! Get data from internal state and copy to species array
-          CALL MAPL_GetPointer( INTERNAL, Ptr3D_R8, TRIM(SPFX) //          &
-               TRIM(ThisSpc%Name), notFoundOK=.TRUE.,     &
-               __RC__ )
-          State_Chm%Species(:,:,:,IND) = Ptr3D_R8(:,:,State_Grid%NZ:1:-1)
-          if ( MAPL_am_I_Root()) WRITE(*,*)                                &
-               'Initialized species from INTERNAL state: ', TRIM(ThisSpc%Name)
-
-       enddo
-    ENDIF
-
 #if defined( MODEL_GEOS )
     !!! always run
     !IsRunTime = .TRUE.
@@ -3949,7 +3928,27 @@ CONTAINS
        
        ! Execute GEOS-Chem if it's time to run it
        IF ( IsRunTime ) THEN
-       
+          IF (IsChemTime .and. Input_opt%IS_ADJOINT) THEN
+             call WRITE_PARALLEL('  Resetting state from checkpoint file')
+             call MAPL_GenericRefresh(GC, Import, Export, Clock, RC)
+             ! Loop over all species and get info from spc db
+             DO N = 1, State_Chm%nSpecies
+                ThisSpc => State_Chm%SpcData(N)%Info
+                !IF (ThisSpc%Is_Advected) CYCLE
+                IF ( TRIM(ThisSpc%Name) == '' ) CYCLE
+                IND = IND_( TRIM(ThisSpc%Name ) )
+                IF ( IND < 0 ) CYCLE
+                ! Get data from internal state and copy to species array
+                CALL MAPL_GetPointer( INTERNAL, Ptr3D_R8, TRIM(SPFX) //          &
+                     TRIM(ThisSpc%Name), notFoundOK=.TRUE.,     &
+                     __RC__ )
+                State_Chm%Species(:,:,:,IND) = Ptr3D_R8(:,:,State_Grid%NZ:1:-1)
+                if ( MAPL_am_I_Root()) WRITE(*,*)                                &
+                     'Initialized species from INTERNAL state: ', TRIM(ThisSpc%Name)
+
+             enddo
+          ENDIF
+
           ! This is mostly for testing
           IF ( FIRST .AND. Input_Opt%haveImpRst ) THEN
              IF ( am_I_Root ) THEN

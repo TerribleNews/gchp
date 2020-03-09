@@ -406,6 +406,7 @@ contains
 
    character(len=ESMF_MAXSTR)              :: ModelPhase
    logical                                 :: isAdjoint
+   logical, save                           :: firstRun = .true.
 
 !=============================================================================
 
@@ -472,8 +473,14 @@ contains
     ! reverse order. Possibly not the Environment module?
     ! In cany case, this isn't working yet, so disable it for now
     !------------------------------------------------------------
+#ifdef REVERSE_OPERATORS
     IF (.not. isAdjoint) THEN
-    ! IF (.true.) THEN
+#else
+    IF (.true.) THEN
+#endif
+    if (MAPL_Am_I_Root()) THEN
+       WRITE(*,*) 'Not reversing high-level operators'
+    endif
 #endif
     ! Cinderella Component: to derive variables for other components
     !---------------------
@@ -569,7 +576,75 @@ contains
     endif
 #ifdef ADJOINT
     ELSE
+       if (MAPL_Am_I_Root()) THEN
+          WRITE(*,*) 'Reversing high-level operators'
+       endif
 
+       IF (firstRun) THEN
+          ! Cinderella Component: to derive variables for other components
+          !---------------------
+          
+          if ( MemDebugLevel > 0 ) THEN
+             call ESMF_VMBarrier(VM, RC=STATUS)
+             _VERIFY(STATUS)
+             call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, before GEOS_ctmE: ', RC=STATUS )
+             _VERIFY(STATUS)
+          endif
+
+          call MAPL_TimerOn ( STATE, GCNames(ECTM) )
+          call ESMF_GridCompRun ( GCS(ECTM),               &
+               importState = GIM(ECTM), &
+               exportState = GEX(ECTM), &
+               clock       = CLOCK,     &
+               userRC      = STATUS  )
+          _VERIFY(STATUS)
+
+          call MAPL_TimerOff( STATE, GCNames(ECTM) )
+
+          if ( MemDebugLevel > 0 ) THEN
+             call ESMF_VMBarrier(VM, RC=STATUS)
+             _VERIFY(STATUS)
+             call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, after  GEOS_ctmE: ', RC=STATUS )
+             _VERIFY(STATUS)
+          endif
+
+          ! Dynamics & Advection
+          !------------------
+          ! SDE 2017-02-18: This needs to run even if transport is off, as it is
+          ! responsible for the pressure level edge arrays. It already has an internal
+          ! switch ("AdvCore_Advection") which can be used to prevent any actual
+          ! transport taking place by bypassing the advection calculation.
+
+          if ( MemDebugLevel > 0 ) THEN
+             call ESMF_VMBarrier(VM, RC=STATUS)
+             _VERIFY(STATUS)
+             call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, before Advection: ', RC=STATUS )
+             _VERIFY(STATUS)
+          endif
+
+          call MAPL_TimerOn ( STATE, GCNames(ADV) )
+          call ESMF_GridCompRun ( GCS(ADV),               &
+               importState = GIM(ADV), &
+               exportState = GEX(ADV), &
+               clock       = CLOCK,    &
+               userRC      = STATUS );
+          _VERIFY(STATUS)
+          call MAPL_GenericRunCouplers (STATE, ADV, CLOCK, RC=STATUS );
+          _VERIFY(STATUS)
+          call MAPL_TimerOff( STATE, GCNames(ADV) )
+
+          if ( MemDebugLevel > 0 ) THEN
+             call ESMF_VMBarrier(VM, RC=STATUS)
+             _VERIFY(STATUS)
+             call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, after  Advection: ', RC=STATUS )
+             _VERIFY(STATUS)
+          endif
+
+       ENDIF
     ! Chemistry
     !------------------
 
@@ -597,6 +672,35 @@ contains
        _VERIFY(STATUS)
        call MAPL_MemUtilsWrite(VM, &
                   'GIGC, after  GEOS-Chem: ', RC=STATUS )
+       _VERIFY(STATUS)
+    endif
+
+    ! Cinderella Component: to derive variables for other components
+    !---------------------
+
+    if ( MemDebugLevel > 0 ) THEN
+       call ESMF_VMBarrier(VM, RC=STATUS)
+       _VERIFY(STATUS)
+       call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, before GEOS_ctmE: ', RC=STATUS )
+       _VERIFY(STATUS)
+    endif
+
+    call MAPL_TimerOn ( STATE, GCNames(ECTM) )
+    call ESMF_GridCompRun ( GCS(ECTM),               &
+                            importState = GIM(ECTM), &
+                            exportState = GEX(ECTM), &
+                            clock       = CLOCK,     &
+                            userRC      = STATUS  )
+    _VERIFY(STATUS)
+
+    call MAPL_TimerOff( STATE, GCNames(ECTM) )
+
+    if ( MemDebugLevel > 0 ) THEN
+       call ESMF_VMBarrier(VM, RC=STATUS)
+       _VERIFY(STATUS)
+       call MAPL_MemUtilsWrite(VM, &
+                  'GIGC, after  GEOS_ctmE: ', RC=STATUS )
        _VERIFY(STATUS)
     endif
 
@@ -634,39 +738,12 @@ contains
        _VERIFY(STATUS)
     endif
 
-    ! Cinderella Component: to derive variables for other components
-    !---------------------
-
-    if ( MemDebugLevel > 0 ) THEN
-       call ESMF_VMBarrier(VM, RC=STATUS)
-       _VERIFY(STATUS)
-       call MAPL_MemUtilsWrite(VM, &
-                  'GIGC, before GEOS_ctmE: ', RC=STATUS )
-       _VERIFY(STATUS)
-    endif
-
-    call MAPL_TimerOn ( STATE, GCNames(ECTM) )
-    call ESMF_GridCompRun ( GCS(ECTM),               &
-                            importState = GIM(ECTM), &
-                            exportState = GEX(ECTM), &
-                            clock       = CLOCK,     &
-                            userRC      = STATUS  )
-    _VERIFY(STATUS)
-
-    call MAPL_TimerOff( STATE, GCNames(ECTM) )
-
-    if ( MemDebugLevel > 0 ) THEN
-       call ESMF_VMBarrier(VM, RC=STATUS)
-       _VERIFY(STATUS)
-       call MAPL_MemUtilsWrite(VM, &
-                  'GIGC, after  GEOS_ctmE: ', RC=STATUS )
-       _VERIFY(STATUS)
-    endif
-
     ENDIF
 #endif
     call MAPL_TimerOff(STATE,"RUN")
     call MAPL_TimerOff(STATE,"TOTAL")
+
+    firstRun = .false.
 
     _RETURN(ESMF_SUCCESS)
 
