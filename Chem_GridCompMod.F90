@@ -507,6 +507,9 @@ CONTAINS
     CHARACTER(LEN=80)             :: FullName, Formula 
     LOGICAL                       :: FriendDyn, FriendTurb
 #endif
+#ifdef ADJOINT
+    INTEGER                       :: restartAttrAdjoint
+#endif
 
     __Iam__('SetServices')
 
@@ -629,6 +632,9 @@ CONTAINS
        restartAttr = MAPL_RestartOptional    ! try to read species from file;
                                              ! use background vals if not found
     ENDIF
+#ifdef ADJOINT
+    restartAttrAdjoint = MAPL_RestartSkip
+#endif
 #endif
 
 !-- Read in species from input.geos and set FRIENDLYTO
@@ -738,7 +744,7 @@ CONTAINS
                  VLOCATION          = MAPL_VLocationCenter,    &
                  PRECISION          = ESMF_KIND_R8, &
                  FRIENDLYTO         = 'DYNAMICS:TURBULENCE:MOIST',  &
-                 RESTART            = restartAttr, &
+                 RESTART            = restartAttrAdjoint, &
                  RC                 = RC  )
 #endif
 
@@ -829,7 +835,7 @@ CONTAINS
                PRECISION          = ESMF_KIND_R8, &
                DIMS               = MAPL_DimsHorzVert,    &
                VLOCATION          = MAPL_VLocationCenter,    &
-               RESTART            = restartAttr,    &
+               RESTART            = restartAttrAdjoint,    &
                RC                 = STATUS  )
 
 
@@ -1752,6 +1758,10 @@ CONTAINS
 
     ! Initialize MAPL Generic
     CALL MAPL_GenericInitialize( GC, Import, Export, Clock, __RC__ )
+
+#ifdef ADJOINT
+    CALL MAPL_GenericStateClockAdd( GC, name='--AdjointCheckpoint', __RC__ )
+#endif
 
     ! Get Internal state.
     CALL MAPL_Get ( STATE, INTERNAL_ESMF_STATE=INTSTATE, __RC__ ) 
@@ -3467,6 +3477,36 @@ CONTAINS
           _VERIFY(STATUS)
        ENDIF
 
+#ifdef ADJOINT
+          IF (IsRunTime) THEN
+             IF (Input_opt%IS_ADJOINT) THEN
+                call WRITE_PARALLEL('  Resetting state from checkpoint file')
+                ! call MAPL_GenericRefresh(GC, Import, Export, Clock, RC)
+                call Adjoint_StateRefresh( GC, IMPORT, EXPORT, CLOCK, RC )
+                ! Loop over all species and get info from spc db
+                DO N = 1, State_Chm%nSpecies
+                   ThisSpc => State_Chm%SpcData(N)%Info
+                   !IF (ThisSpc%Is_Advected) CYCLE
+                   IF ( TRIM(ThisSpc%Name) == '' ) CYCLE
+                   IND = IND_( TRIM(ThisSpc%Name ) )
+                   IF ( IND < 0 ) CYCLE
+                   ! Get data from internal state and copy to species array
+                   CALL MAPL_GetPointer( INTERNAL, Ptr3D_R8, TRIM(SPFX) //          &
+                        TRIM(ThisSpc%Name), notFoundOK=.TRUE.,     &
+                        __RC__ )
+                   State_Chm%Species(:,:,:,IND) = Ptr3D_R8(:,:,State_Grid%NZ:1:-1)
+                   if ( MAPL_am_I_Root()) WRITE(*,*)                                &
+                        'Initialized species from INTERNAL state: ', TRIM(ThisSpc%Name)
+
+                enddo
+             ELSE
+                call WRITE_PARALLEL('  Recording state to checkpoint file')
+                call Adjoint_StateRecord( GC, IMPORT, EXPORT, CLOCK, RC )
+                call WRITE_PARALLEL('  Done recording state to checkpoint files')
+             ENDIF
+          ENDIF
+#endif
+
 !       !=======================================================================
 !       ! pre-Run method array assignments. This passes the tracer arrays from
 !       ! the internal state to State_Chm. On the first call, it also fills the
@@ -3922,32 +3962,14 @@ CONTAINS
        
        ! Fix negatives!
        ! These can be brought in as an artifact of convection.
-       ! WHERE ( State_Chm%Species < 0.0e0 )
-       !    State_Chm%Species = 1.0e-36
-       ! END WHERE 
+#ifndef ADJOINT
+       WHERE ( State_Chm%Species < 0.0e0 )
+          State_Chm%Species = 1.0e-36
+       END WHERE 
+#endif
        
        ! Execute GEOS-Chem if it's time to run it
        IF ( IsRunTime ) THEN
-          IF (IsChemTime .and. Input_opt%IS_ADJOINT) THEN
-             call WRITE_PARALLEL('  Resetting state from checkpoint file')
-             call MAPL_GenericRefresh(GC, Import, Export, Clock, RC)
-             ! Loop over all species and get info from spc db
-             DO N = 1, State_Chm%nSpecies
-                ThisSpc => State_Chm%SpcData(N)%Info
-                !IF (ThisSpc%Is_Advected) CYCLE
-                IF ( TRIM(ThisSpc%Name) == '' ) CYCLE
-                IND = IND_( TRIM(ThisSpc%Name ) )
-                IF ( IND < 0 ) CYCLE
-                ! Get data from internal state and copy to species array
-                CALL MAPL_GetPointer( INTERNAL, Ptr3D_R8, TRIM(SPFX) //          &
-                     TRIM(ThisSpc%Name), notFoundOK=.TRUE.,     &
-                     __RC__ )
-                State_Chm%Species(:,:,:,IND) = Ptr3D_R8(:,:,State_Grid%NZ:1:-1)
-                if ( MAPL_am_I_Root()) WRITE(*,*)                                &
-                     'Initialized species from INTERNAL state: ', TRIM(ThisSpc%Name)
-
-             enddo
-          ENDIF
 
           ! This is mostly for testing
           IF ( FIRST .AND. Input_Opt%haveImpRst ) THEN
@@ -7826,6 +7848,154 @@ CONTAINS
    end function monin_obukhov_length
 
 !EOC
+#endif
+
+#ifdef ADJOINT
+subroutine Adjoint_StateRecord( GC, IMPORT, EXPORT, CLOCK, RC )
+
+! !ARGUMENTS:
+
+    type(ESMF_GridComp), intent(inout) :: GC     ! composite gridded component 
+    type(ESMF_State),    intent(inout) :: IMPORT ! import state
+    type(ESMF_State),    intent(inout) :: EXPORT ! export state
+    type(ESMF_Clock),    intent(inout) :: CLOCK  ! the clock
+    integer, optional,   intent(  out) :: RC     ! Error code:
+                                                 ! = 0 all is well
+                                                 ! otherwise, error
+!EOPI
+
+! LOCAL VARIABLES
+
+  character(len=ESMF_MAXSTR)                  :: IAm
+  character(len=ESMF_MAXSTR)                  :: COMP_NAME
+  integer                                     :: STATUS
+
+  type (MAPL_MetaComp), pointer               :: STATE
+  type (ESMF_State)                           :: INTERNAL
+  integer                                     :: hdr
+  character(len=ESMF_MAXSTR)                  :: FILETYPE
+  character(len=ESMF_MAXSTR)                  :: FNAME, DATESTAMP
+
+!=============================================================================
+
+!  Begin...
+
+  _UNUSED_DUMMY(EXPORT)
+
+  Iam = "Adjoint_StateRecord"
+  call ESMF_GridCompGet(GC, name=COMP_NAME, RC=STATUS )
+  _VERIFY(STATUS)
+  Iam = trim(COMP_NAME) // Iam
+
+  ! Get my MAPL_Generic state
+  ! -------------------------
+  CALL MAPL_GetObjectFromGC(GC, STATE, RC=STATUS)
+  _VERIFY(STATUS)
+
+  ! Get Internal State
+  call MAPL_Get( STATE, INTERNAL_ESMF_STATE=INTERNAL, __RC__ )
+
+  call MAPL_DateStampGet(clock, datestamp, __RC__ )
+
+  FILETYPE = 'pnc4'
+  FNAME = 'gcadj_import_checkpoint.' // trim(datestamp) // '.nc4'
+
+  call MAPL_CheckpointState(IMPORT, CLOCK, &
+       FNAME, &
+       FILETYPE, STATE, .FALSE., &
+       RC=STATUS)
+  _VERIFY(STATUS)
+
+  FNAME = 'gcadj_internal_checkpoint.' // trim(datestamp) // '.nc4'
+
+  call MAPL_CheckpointState(INTERNAL, CLOCK, &
+       FNAME, &
+       FILETYPE, STATE, hdr/=0, &
+       RC=STATUS)
+  _VERIFY(STATUS)
+
+
+  _RETURN(ESMF_SUCCESS)
+end subroutine Adjoint_StateRecord
+
+subroutine Adjoint_StateRefresh( GC, IMPORT, EXPORT, CLOCK, RC )
+
+  ! !ARGUMENTS:
+
+  type(ESMF_GridComp), intent(inout) :: GC     ! composite gridded component 
+  type(ESMF_State),    intent(inout) :: IMPORT ! import state
+  type(ESMF_State),    intent(inout) :: EXPORT ! export state
+  type(ESMF_Clock),    intent(inout) :: CLOCK  ! the clock
+  integer, optional,   intent(  out) :: RC     ! Error code:
+  ! = 0 all is well
+  ! otherwise, error
+  !EOPI
+
+  ! LOCAL VARIABLES
+
+  character(len=ESMF_MAXSTR)                  :: IAm
+  character(len=ESMF_MAXSTR)                  :: COMP_NAME
+  integer                                     :: STATUS
+
+  type (MAPL_MetaComp), pointer               :: STATE
+  type (ESMF_State)                           :: INTERNAL
+  integer                                     :: hdr
+  integer                                     :: unit
+
+  character(len=ESMF_MAXSTR)                  :: FNAME, datestamp
+
+  !=============================================================================
+
+  _UNUSED_DUMMY(EXPORT)
+
+  !  Begin...
+
+  Iam = "Adjoint_StateRefresh"
+  call ESMF_GridCompGet(GC, name=COMP_NAME, RC=STATUS )
+  _VERIFY(STATUS)
+  Iam = trim(COMP_NAME) // Iam
+
+  ! Get my MAPL_Generic state
+  ! -------------------------
+  CALL MAPL_GetObjectFromGC(GC, STATE, RC=STATUS)
+  _VERIFY(STATUS)
+
+  ! Get Internal state
+  CALL MAPL_Get ( STATE, INTERNAL_ESMF_STATE=INTERNAL, __RC__ ) 
+
+  call MAPL_DateStampGet(clock, datestamp, rc=status)
+  _VERIFY(STATUS)
+
+  FNAME = 'gcadj_import_checkpoint.' // trim(datestamp) // '.nc4'
+
+  call MAPL_ESMFStateReadFromFile(IMPORT, CLOCK, &
+       FNAME, &
+       STATE, .FALSE., RC=STATUS)
+  _VERIFY(STATUS)
+  UNIT = GETFILE(FNAME, RC=STATUS)
+  _VERIFY(STATUS)
+  call MAPL_DestroyFile(unit = UNIT, rc=STATUS)
+  _VERIFY(STATUS)
+
+  FNAME = 'gcadj_internal_checkpoint.' // trim(datestamp) // '.nc4'
+
+  call MAPL_ESMFStateReadFromFile(INTERNAL, CLOCK, &
+       FNAME, &
+       STATE, hdr/=0, RC=STATUS)
+  _VERIFY(STATUS)
+  IF (FNAME(1:1) .eq. '-' .or. &
+       FNAME(1:1) .eq. '+') THEN
+     UNIT = GETFILE(FNAME(2:), RC=STATUS)
+  else
+     UNIT = GETFILE(FNAME, RC=STATUS)
+  endif
+  _VERIFY(STATUS)
+  call MAPL_DestroyFile(unit = UNIT, rc=STATUS)
+  _VERIFY(STATUS)
+
+  _RETURN(ESMF_SUCCESS)
+end subroutine Adjoint_StateRefresh
+
 #endif
 
 #if defined( MODEL_GEOS )

@@ -156,9 +156,9 @@ module MAPL_GenericMod
   public MAPL_TerminateImport
   
   ! MAPL_Util
-  !public MAPL_GenericStateClockOn
-  !public MAPL_GenericStateClockOff
-  !public MAPL_GenericStateClockAdd
+  public MAPL_GenericStateClockOn
+  public MAPL_GenericStateClockOff
+  public MAPL_GenericStateClockAdd
   public MAPL_TimerOn
   public MAPL_TimerOff
   public MAPL_TimerAdd
@@ -194,6 +194,9 @@ module MAPL_GenericMod
   public MAPL_DoNotAllocateInternal
   public MAPL_GCGet
   public MAPL_CheckpointState
+
+! Required for GCHP Adoint
+  public MAPL_ESMFStateReadFromFile
 
 !BOP  
   ! !PUBLIC TYPES:

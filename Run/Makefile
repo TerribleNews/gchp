@@ -177,6 +177,7 @@ cleanup_data:
 	rm -f diaginfo.dat
 	rm -f cap_restart
 	rm -f gcchem*
+	rm -f gcadj_*
 	rm -f *.rcx
 	rm -f *~
 

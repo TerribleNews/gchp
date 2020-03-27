@@ -311,7 +311,7 @@ if [[ ${ChemEmiss_Timestep_sec} -lt ${TransConv_Timestep_sec} ]]; then
 fi
 
 ## Check if restart file exists
-if [[ ! -e ${INITIAL_RESTART} ]]; then
+if [[ ! -e ${INITIAL_RESTART} && ${INITIAL_RESTART} =~ none^ ]]; then
     printf 'ERROR: Restart file specified in runConfig.sh not found: %s\n' ${INITIAL_RESTART}
     exit 1
 fi
@@ -349,6 +349,11 @@ replace_val NX            ${NX}                 GCHP.rc
 replace_val NY            ${NY}                 GCHP.rc
 replace_val CoresPerNode  ${NUM_CORES_PER_NODE} HISTORY.rc
 
+### Comment out Adjoint collection in HISTORY.rc. It's not
+### needed for forward run
+echo "Removing Adjoint history collection"
+sed -i "s/^\([\t ]*\)'Adjoint',/\1#'Adjoint',/" HISTORY.rc
+
 ####  set cubed-sphere resolution and related grid variables
 echo " "
 echo "Cubed-sphere resolution:"
@@ -364,6 +369,9 @@ replace_val GCHP.GRIDNAME  PE${CS_RES}x${CS_RES_x_6}-CF  GCHP.rc
 echo " "
 echo "Initial reestart file:"
 replace_val GIGCchem_INTERNAL_RESTART_FILE "+${INITIAL_RESTART}" GCHP.rc
+
+### adjoint whateverness
+replace_val MODEL_PHASE "FORWARD" GCHP.rc
 
 #### Set simulation start and end datetimes based on input.geos
 echo " "

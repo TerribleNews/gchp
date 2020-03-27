@@ -92,3 +92,14 @@ STDOUT_LOGLUN:        700
 # %%% Memory debug print level (integer 0 to 3; 0=none, 3=highest)
 #
 MEMORY_DEBUG_LEVEL:   0
+
+#
+# Adjoint variables
+#
+MODEL_PHASE:         FORWARD
+FD_STEP:             0
+FD_SPEC:             CO2
+FD_GLOBAL:           TRUE
+FD_LAT:              44.65
+FD_LON:              -63.58
+LFD:                 1

@@ -91,6 +91,7 @@ echo "Copying files..."
 copyfiles input.geos      ${archivedir}/config
 copyfiles "*.rc"          ${archivedir}/config
 copyfiles runConfig.sh    ${archivedir}/config
+copyfiles runConfig_adj.sh ${archivedir}/config
 copyfiles "*.run"         ${archivedir}/config
 copyfiles "*.env"         ${archivedir}/config
 copyfiles "*.multirun.sh" ${archivedir}/config

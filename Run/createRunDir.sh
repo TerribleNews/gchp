@@ -251,6 +251,7 @@ cp ./input.geos.templates/input.geos.${sim_name}            ${rundir}/input.geos
 cp ./ExtData.rc.templates/ExtData.rc.${sim_type}            ${rundir}/ExtData.rc
 cp ./HEMCO_Config.rc.templates/HEMCO_Config.rc.${sim_type}  ${rundir}/HEMCO_Config.rc
 cp ./HEMCO_Diagn.rc.templates/HEMCO_Diagn.rc.${sim_name}    ${rundir}/HEMCO_Diagn.rc
+cp ./runConfig_adj.sh.template                              ${rundir}/runConfig_adj.sh
 
 # If benchmark simulation, put gchp.run script in directory; else do not.
 if [ "${sim_name}" == "benchmark" ]; then
@@ -276,6 +277,10 @@ for N in 24 48 90 180 360
 do
     ln -s ${restarts}/initial_GEOSChem_rst.c${N}_${sim_name_long}.nc  ${rundir}
 done
+
+if [ "${sim_name}" == "co2" ]; then
+    ln -s /nobackupp13/clee59/SPC_RESTARTS/initial_GEOSChem_rst.c24_cmsf.nc ${rundir}
+fi
 
 #-----------------------------------------------------------------
 # Replace token strings in certain files
@@ -313,7 +318,7 @@ elif [ "${sim_type}" == "fullchem" ]; then
     enddate="20160701"
 elif [ "${sim_type}" == "co2" ]; then
     startdate="20140901"
-    enddate="20141001"
+    enddate="20140903"
 else
     printf "\nError: Start date is not defined for simulation ${sim_type}."
 fi
@@ -321,6 +326,8 @@ sed -i -e "s|{DATE1}|${startdate}|"     ${rundir}/runConfig.sh
 sed -i -e "s|{DATE2}|${enddate}|"       ${rundir}/runConfig.sh
 sed -i -e "s|{DATE1}|${startdate}|"     ${rundir}/CAP.rc
 sed -i -e "s|{DATE2}|${enddate}|"       ${rundir}/CAP.rc
+sed -i -e "s|{DATE1}|${startdate}|"     ${rundir}/runConfig_adj.sh
+sed -i -e "s|{DATE2}|${enddate}|"     ${rundir}/runConfig_adj.sh
 
 # Special handling for benchmark simulation
 if [ "${sim_name}" == "benchmark" ]; then
@@ -341,7 +348,7 @@ elif [ "${sim_name}" == "co2" ]; then
     diag_freq="010000"
     start_time="000000"
     end_time="000000"    
-    dYYYYMMDD="00000030"
+    dYYYYMMDD="00000002"
     dHHmmSS="000000"
 else
     total_cores=6
@@ -373,6 +380,17 @@ sed -i -e "s|{TIME2}|${end_time}|"       ${rundir}/CAP.rc
 sed -i -e "s|{dYYYYMMDD}|${dYYYYMMDD}|"  ${rundir}/CAP.rc
 sed -i -e "s|{dHHmmss}|${dHHmmSS}|"      ${rundir}/CAP.rc
 
+sed -i -e "s|{TotalCores}|${total_cores}|"             ${rundir}/runConfig_adj.sh
+sed -i -e "s|{NumNodes}|${num_nodes}|"                 ${rundir}/runConfig_adj.sh
+sed -i -e "s|{NumCoresPerNode}|${num_cores_per_node}|" ${rundir}/runConfig_adj.sh
+sed -i -e "s|{GridRes}|${grid_res}|"                   ${rundir}/runConfig_adj.sh
+sed -i -e "s|{DiagFreq}|${diag_freq}|"                 ${rundir}/runConfig_adj.sh
+sed -i -e "s|{DiagDur}|${diag_dur}|"                   ${rundir}/runConfig_adj.sh
+sed -i -e "s|{TIME1}|${start_time}|"                   ${rundir}/runConfig_adj.sh
+sed -i -e "s|{TIME2}|${end_time}|"                     ${rundir}/runConfig_adj.sh
+sed -i -e "s|{TIME2_short}|${end_time::4}|"            ${rundir}/runConfig_adj.sh
+sed -i -e "s|{dYYYYMMDD}|${dYYYYMMDD}|"                ${rundir}/runConfig_adj.sh
+sed -i -e "s|{dHHmmss}|${dHHmmSS}|"                    ${rundir}/runConfig_adj.sh
 #-----------------------------------------------------------------
 # Set permissions
 #-----------------------------------------------------------------
@@ -385,6 +403,7 @@ chmod 744 ${rundir}/archiveRun.sh
 chmod 744 ${rundir}/runScriptSamples/*
 chmod 744 ${rundir}/environmentFileSamples/*
 chmod 644 ${rundir}/runScriptSamples/README
+chmod 744 ${rundir}/runConfig_adj.sh
 
 #----------------------------------------------------------------------
 # Archive GCHP repository version in run directory file rundir.version

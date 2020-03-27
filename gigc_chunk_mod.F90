@@ -291,78 +291,6 @@ CONTAINS
                            State_Chm, State_Diag, State_Grid, State_Met, RC )
     _ASSERT(RC==GC_SUCCESS, 'informative message here')
 
-
-    ! Initialize other GEOS-Chem modules
-    CALL GC_Init_Extra( am_I_Root, HistoryConfig%DiagList, Input_Opt,    &
-                        State_Chm, State_Diag, State_Grid, RC ) 
-    _ASSERT(RC==GC_SUCCESS, 'informative message here')
-
-    ! Set initial State_Chm%Species units to units expected in transport
-# if defined( MODEL_GEOS )
-    State_Chm%Spc_Units = 'kg/kg total'
-#else
-    State_Chm%Spc_Units = 'kg/kg dry'
-#endif
-
-    ! Initialize the GEOS-Chem pressure module (set Ap & Bp)
-    CALL Init_Pressure( am_I_Root, State_Grid, RC )
-
-    ! Initialize the PBL mixing module
-    CALL INIT_PBL_MIX( am_I_Root, State_Grid, RC )
-    _ASSERT(RC==GC_SUCCESS, 'informative message here')
-
-    ! Initialize chemistry mechanism
-    IF ( Input_Opt%ITS_A_FULLCHEM_SIM .OR. Input_Opt%ITS_AN_AEROSOL_SIM ) THEN
-       CALL INIT_CHEMISTRY ( am_I_Root,  Input_Opt,  State_Chm, &
-                             State_Diag, State_Grid, RC )
-       _ASSERT(RC==GC_SUCCESS, 'informative message here')
-    ENDIF
-
-    ! Initialize HEMCO
-    CALL EMISSIONS_INIT ( am_I_Root,  Input_Opt, State_Chm, &
-                          State_Grid, State_Met, RC, &
-                          HcoConfig=HcoConfig )
-    _ASSERT(RC==GC_SUCCESS, 'informative message here')
-
-    ! Stratosphere - can't be initialized without HEMCO because of STATE_PSC
-    IF ( Input_Opt%LUCX ) THEN
-
-       ! Initialize stratospheric routines
-       CALL INIT_UCX( am_I_Root, Input_Opt, State_Chm, State_Diag, State_Grid )
-
-    ENDIF
-
-#if defined( MODEL_GEOS )
-    ! Keep commented out line with LLSTRAT as a GEOS-5 option reminder
-    !IF ( Input_Opt%LSCHEM .AND. Input_Opt%LLSTRAT < value_LM ) THEN
-#endif
-     IF ( Input_Opt%LSCHEM ) THEN
-       CALL INIT_STRAT_CHEM( am_I_Root, Input_Opt,  State_Chm, & 
-                             State_Met, State_Grid, RC )
-       IF (RC /= GC_SUCCESS) RETURN
-    ENDIF
-
-    !-------------------------------------------------------------------------
-    ! Diagnostics and tendencies 
-    !-------------------------------------------------------------------------
-
-#if defined( MODEL_GEOS )
-    ! The GEOS-Chem diagnostics list, stored in HistoryConfig, is initialized 
-    ! during GIGC_INIT_SIMULATION, and corresponding arrays in State_Diag are 
-    ! allocated accordingly when initializing State_Diag. Here, we thus 
-    ! only need to initialize the tendencies, which have not been initialized
-    ! yet (ckeller, 11/29/17). 
-    CALL Tend_Init ( am_I_Root, Input_Opt, State_Met, State_Chm, RC ) 
-    _ASSERT(RC==GC_SUCCESS, 'informative message here')
-#endif
-
-#if !defined( MODEL_GEOS )
-    ! GCHP only: Convert species units to internal state units (v/v dry)
-    CALL Convert_Spc_Units( am_I_Root,  Input_Opt, State_Chm, &
-                            State_Grid, State_Met, 'v/v dry', RC )
-    _ASSERT(RC==GC_SUCCESS, 'informative message here')
-#endif
-
 #ifdef ADJOINT
     ! Are we running the adjoint?
     call ESMF_ConfigGetAttribute(CF, ModelPhase,            &
@@ -455,6 +383,78 @@ CONTAINS
 1019   FORMAT('   SPC_ADJ(', a10, ', FD_SPOT) = ', e22.10)
     ENDIF
 #endif
+
+    ! Initialize other GEOS-Chem modules
+    CALL GC_Init_Extra( am_I_Root, HistoryConfig%DiagList, Input_Opt,    &
+                        State_Chm, State_Diag, State_Grid, RC ) 
+    _ASSERT(RC==GC_SUCCESS, 'informative message here')
+
+    ! Set initial State_Chm%Species units to units expected in transport
+# if defined( MODEL_GEOS )
+    State_Chm%Spc_Units = 'kg/kg total'
+#else
+    State_Chm%Spc_Units = 'kg/kg dry'
+#endif
+
+    ! Initialize the GEOS-Chem pressure module (set Ap & Bp)
+    CALL Init_Pressure( am_I_Root, State_Grid, RC )
+
+    ! Initialize the PBL mixing module
+    CALL INIT_PBL_MIX( am_I_Root, State_Grid, RC )
+    _ASSERT(RC==GC_SUCCESS, 'informative message here')
+
+    ! Initialize chemistry mechanism
+    IF ( Input_Opt%ITS_A_FULLCHEM_SIM .OR. Input_Opt%ITS_AN_AEROSOL_SIM ) THEN
+       CALL INIT_CHEMISTRY ( am_I_Root,  Input_Opt,  State_Chm, &
+                             State_Diag, State_Grid, RC )
+       _ASSERT(RC==GC_SUCCESS, 'informative message here')
+    ENDIF
+
+    ! Initialize HEMCO
+    CALL EMISSIONS_INIT ( am_I_Root,  Input_Opt, State_Chm, &
+                          State_Grid, State_Met, RC, &
+                          HcoConfig=HcoConfig )
+    _ASSERT(RC==GC_SUCCESS, 'informative message here')
+
+    ! Stratosphere - can't be initialized without HEMCO because of STATE_PSC
+    IF ( Input_Opt%LUCX ) THEN
+
+       ! Initialize stratospheric routines
+       CALL INIT_UCX( am_I_Root, Input_Opt, State_Chm, State_Diag, State_Grid )
+
+    ENDIF
+
+#if defined( MODEL_GEOS )
+    ! Keep commented out line with LLSTRAT as a GEOS-5 option reminder
+    !IF ( Input_Opt%LSCHEM .AND. Input_Opt%LLSTRAT < value_LM ) THEN
+#endif
+     IF ( Input_Opt%LSCHEM ) THEN
+       CALL INIT_STRAT_CHEM( am_I_Root, Input_Opt,  State_Chm, & 
+                             State_Met, State_Grid, RC )
+       IF (RC /= GC_SUCCESS) RETURN
+    ENDIF
+
+    !-------------------------------------------------------------------------
+    ! Diagnostics and tendencies 
+    !-------------------------------------------------------------------------
+
+#if defined( MODEL_GEOS )
+    ! The GEOS-Chem diagnostics list, stored in HistoryConfig, is initialized 
+    ! during GIGC_INIT_SIMULATION, and corresponding arrays in State_Diag are 
+    ! allocated accordingly when initializing State_Diag. Here, we thus 
+    ! only need to initialize the tendencies, which have not been initialized
+    ! yet (ckeller, 11/29/17). 
+    CALL Tend_Init ( am_I_Root, Input_Opt, State_Met, State_Chm, RC ) 
+    _ASSERT(RC==GC_SUCCESS, 'informative message here')
+#endif
+
+#if !defined( MODEL_GEOS )
+    ! GCHP only: Convert species units to internal state units (v/v dry)
+    CALL Convert_Spc_Units( am_I_Root,  Input_Opt, State_Chm, &
+                            State_Grid, State_Met, 'v/v dry', RC )
+    _ASSERT(RC==GC_SUCCESS, 'informative message here')
+#endif
+
     ! Return success
     RC = GC_Success
 
@@ -938,6 +938,16 @@ CONTAINS
 
 1017 FORMAT('       SPC(', a10, ', FD_SPOT) = ', e22.10)
 1018   FORMAT('   SPC_ADJ(', a10, ', FD_SPOT) = ', e22.10)
+    IF (Input_Opt%IS_FD_SPOT_THIS_PET ) THEN
+       FD_SPEC = transfer(state_chm%SpcData(Input_Opt%NFD)%Info%Name, FD_SPEC)
+       NFD = Input_Opt%NFD
+       IFD = Input_Opt%IFD
+       JFD = Input_Opt%JFD
+       LFD = Input_Opt%LFD
+       WRITE(*,1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
+       IF (Input_Opt%Is_Adjoint) &
+            WRITE (*, 1018) TRIM(FD_SPEC), state_chm%SpeciesAdj(IFD, JFD, LFD, NFD)
+    ENDIF
 #endif
     
     ! Convert to dry mixing ratio

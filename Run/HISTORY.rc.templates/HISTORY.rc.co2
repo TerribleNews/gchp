@@ -53,6 +53,7 @@ COLLECTIONS: #'AerosolMass'
              #'LevelEdgeDiags',      
              #'ProdLoss',
              'SpeciesConc',
+	     'Adjoint',
              #'StateChm',
              'StateMet_avg',  
              #'StateMet_inst',  
@@ -781,6 +782,15 @@ COLLECTIONS: #'AerosolMass'
   SpeciesConc.duration:   240000
   SpeciesConc.mode:       'time-averaged'
   SpeciesConc.fields:     'SpeciesConc_CO2    ', 'GIGCchem',
+::
+#===================================================================
+# Species concentrations (per advected species) - time-averaged values
+  Adjoint.template:   '%y4%m2%d2.nc4',
+  Adjoint.format:     'CFIO',
+  Adjoint.frequency:  240000
+  Adjoint.duration:   240000
+  Adjoint.mode:       'instantaneous'
+  Adjoint.fields:     'SpeciesAdj_CO2    ', 'GIGCchem',
 ::
 #===================================================================
 # State_Chm array diagnostics (see also Aerosols collection)
