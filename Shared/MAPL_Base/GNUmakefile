@@ -215,6 +215,19 @@ MAPL_Generic.o: FOPT := $(FOPT0)
 endif
 endif
 
+#------------------------------------------------------------------------------
+# GCHP Adoint settings
+#------------------------------------------------------------------------------
+REGEXP               :=(^[Yy]|^[Yy][Ee][Ss])
+ifeq ($(shell [[ "$(ADJOINT)" =~ $(REGEXP) ]] && echo true),true)
+  USER_FFLAGS         += -DADJOINT
+endif
+
+REGEXP               :=(^[Yy]|^[Yy][Ee][Ss])
+ifeq ($(shell [[ "$(REVERSE_OPERATORS)" =~ $(REGEXP) ]] && echo true),true)
+  USER_FFLAGS        += -DREVERSE_OPERATORS
+endif
+
 vpath % $(MOD_DIRS) tests TeX
 
 $(LIB) lib : $(DEPS) $(OBJS)

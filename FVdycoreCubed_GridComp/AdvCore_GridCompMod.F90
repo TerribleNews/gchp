@@ -81,6 +81,10 @@ module AdvCore_GridCompMod
       logical     :: FV3_DynCoreIsRunning=.false.
       integer     :: AdvCore_Advection=1
       logical     :: chk_mass=.false.
+#ifdef ADJOINT
+      logical                    :: isAdjoint=.false.
+      character(len=ESMF_MAXSTR) :: modelPhase
+#endif
 
       integer,  parameter :: ntiles_per_pe = 1
 
@@ -364,6 +368,14 @@ contains
       _VERIFY(STATUS)
       DT = ndt
 
+#ifdef ADJOINT
+      call MAPL_GetResource( MAPL, modelPhase, 'MODEL_PHASE:', default='FORWARD', RC=STATUS )
+      _VERIFY(STATUS)
+      isAdjoint = .false.
+      if (trim(ModelPhase) == 'ADJOINT') &
+           isAdjoint = .true.
+
+#endif
       ! Start up FV if AdvCore is running without FV3_DynCoreIsRunning
       !--------------------------------------------------
       if (.NOT. FV3_DynCoreIsRunning) then
@@ -665,18 +677,13 @@ contains
                if (MASS0 /= 0.0) TMASS0=TMASS0/MASS0
             endif
          endif
-         !firstRun=.false.
+         if (.not. isAdjoint) &
+              firstRun=.false.
 
          ! Run FV3 advection
          !------------------
          if (AdvCore_Advection>0 .and. .not. firstRun) then
          call WRITE_PARALLEL("offline_tracer_advection")
-#ifdef ADJOINT
-         call WRITE_PARALLEL(DryPLE0(DI,DJ,DL), format='("DryPLE0(debug) = ", e24.18)')
-         call WRITE_PARALLEL(DryPLE1(DI,DJ,DL), format='("DryPLE1(debug) = ", e24.18)')
-         CALL GIGC_PRINT_MET( am_I_root, I_DBG, J_DBG, L_DBG, Input_Opt,&
-              State_Grid, State_Met, trim(Iam) // ' before offline_tracer_advection.', RC)
-#endif
          call offline_tracer_advection(TRACERS, DryPLE0, DryPLE1, MFX, MFY, &
                                        CX, CY,                              &
                                        fv_atm(1)%gridstruct,                &
@@ -690,7 +697,8 @@ contains
                                        k_split, dt, z_tracer, fv_atm(1)%flagstruct%fill)
 
          endif
-         firstRun = .false.
+         if (isAdjoint) &
+              firstRun = .false.
 
          ! Update tracer mass conservation
          !-------------------------------------------------------------------------

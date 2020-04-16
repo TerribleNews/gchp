@@ -160,7 +160,7 @@ CONTAINS
        RETURN
     ENDIF
     ! Optional debugging
-    !CALL Print_DiagList( am_I_Root, HistoryConfig%DiagList, RC )
+    CALL Print_DiagList( am_I_Root, HistoryConfig%DiagList, RC )
 
     CALL Init_HistoryExportsList( am_I_Root, HistoryConfig, RC )
     IF ( RC == GC_FAILURE ) THEN
@@ -742,7 +742,9 @@ CONTAINS
     current => HistoryConfig%HistoryExportsList%head
     DO WHILE ( ASSOCIATED( current ) )
        
-
+       if (MAPL_Am_I_Root()) THEN
+          print *, '  Copying ' // TRIM(current%name)
+       endif
        IF ( current%rank == 2 ) THEN
           IF ( ASSOCIATED ( current%GCStateData2d ) ) THEN
              current%ExportData2d = current%GCStateData2d

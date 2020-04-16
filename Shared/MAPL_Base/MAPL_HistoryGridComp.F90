@@ -417,6 +417,9 @@ contains
     type(ESMF_TimeInterval)        :: timeStep
     character(len=ESMF_MAXSTR)     :: TimeString
     logical                        :: ringing
+#ifdef ADJOINT
+    integer                        :: reverseTime
+#endif
 ! Begin
 !------
 
@@ -521,6 +524,15 @@ contains
     call ESMF_ConfigGetAttribute(config, value=intstate%version,          &
                                          label='VERSION:', default=0, rc=status)
     _VERIFY(STATUS)
+
+#ifdef ADJOINT
+    ! Are we running the adjoint?
+    call ESMF_ConfigGetAttribute(config, reverseTime,            &
+                                 Label="REVERSE_TIME:" ,         &
+                                 Default=0,  RC=STATUS)
+    _VERIFY(STATUS)
+#endif
+
     if( MAPL_AM_I_ROOT() ) then
        print *
        print *, 'EXPSRC:',trim(INTSTATE%expsrc)
@@ -531,6 +543,12 @@ contains
        print *, 'MarkDone:  '        , INTSTATE%MarkDone
        print *, 'PrePost:   '        , INTSTATE%PrePost
        print *
+#ifdef ADJOINT
+       print *, 'Checking if this is adjoint. REVERSE_TIME = "',  reverseTime, '"'
+       if (reverseTime .eq. 1) THEN
+          print *, 'Yes!'
+       endif
+#endif
     endif
 
 ! Determine Number of Output Streams
@@ -1217,7 +1235,7 @@ contains
              endif
           endif
        endif
-       if(.false. .and.  MAPL_AM_I_ROOT() ) then
+       if(.true. .and.  MAPL_AM_I_ROOT() ) then
           write(6,*) "Setting history alarm for species ", n
 
           call ESMF_TimeGet  ( RingTime, timeString=tmpstring, rc=status ) ; _VERIFY(STATUS)
@@ -1257,9 +1275,9 @@ contains
        
        ! I don't understand what's going on here. For some reason when I create the alarm when the clock is running
        ! with a negative timestep, it immediately rings, even though it's an hour in the past...
-       if (ESMF_AlarmIsRinging(list(n)%his_alarm)) THEN
-          call ESMF_AlarmSet(list(n)%his_alarm, RingTime=RingTime, ringing=.false., rc=status); _VERIFY(STATUS)
-       endif
+       ! if (ESMF_AlarmIsRinging(list(n)%his_alarm)) THEN
+       !    call ESMF_AlarmSet(list(n)%his_alarm, RingTime=RingTime, ringing=.false., rc=status); _VERIFY(STATUS)
+       ! endif
        if(.false. .and.  MAPL_AM_I_ROOT() ) then
           call ESMF_AlarmGet(list(n)%his_alarm, RingTime=DebugTime,  ringing=ringing, rc=STATUS); _VERIFY(STATUS)
           call ESMF_TimeGet  ( DebugTime, timeString=TimeString, rc=status ) ; _VERIFY(STATUS)
@@ -1287,11 +1305,7 @@ contains
                 RingTime = RingTime + (INT((currTime - RingTime)/frequency)+1)*frequency
              endif
           endif
-          if ( list(n)%backwards ) then
-             list(n)%seg_alarm = ESMF_AlarmCreate( clock=clock, RingInterval=Frequency, RingTime=RingTime, sticky=.false., rc=status )
-          else
-             list(n)%seg_alarm = ESMF_AlarmCreate( clock=clock, RingInterval=Frequency, RingTime=RingTime, sticky=.false., rc=status )
-          endif
+          list(n)%seg_alarm = ESMF_AlarmCreate( clock=clock, RingInterval=Frequency, RingTime=RingTime, sticky=.false., rc=status )
           _VERIFY(STATUS)
        else
           ! this alarm should never ring, but it is checked if ringing
@@ -1321,11 +1335,7 @@ contains
        do while ( RingTime < currTime )
           RingTime = RingTime + Frequency
        enddo
-       if ( list(n)%backwards ) then
-          list(n)%mon_alarm = ESMF_AlarmCreate( clock=clock, RingInterval=Frequency, RingTime=RingTime, rc=status )
-       else
-          list(n)%mon_alarm = ESMF_AlarmCreate( clock=clock, RingInterval=Frequency, RingTime=RingTime, sticky=.false., rc=status )
-       endif
+       list(n)%mon_alarm = ESMF_AlarmCreate( clock=clock, RingInterval=Frequency, RingTime=RingTime, sticky=.false., rc=status )
        _VERIFY(STATUS)
        
 ! End Alarm based on end_date and end_time
@@ -1345,17 +1355,14 @@ contains
                                         M  = REF_TIME(5), &
                                         S  = REF_TIME(6), calendar=cal, rc=rc )
 
-           if ( list(n)%backwards ) then
-              list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=RingTime, rc=status )
-           else
-              list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=RingTime, sticky=.false., rc=status )
-           endif
+           list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=RingTime, sticky=.false., rc=status )
            _VERIFY(STATUS)
         else
-           if ( list(n)%backwards ) then
-              list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=CurrTime, rc=status )
-           else
+
+           if (reverseTime .eq. 0) then
               list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=CurrTime, sticky=.false., rc=status )
+           else
+              list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=endTime, sticky=.false., rc=status )
            endif
            _VERIFY(STATUS)
            call  ESMF_AlarmRingerOff(list(n)%end_alarm, rc=status )
@@ -2874,6 +2881,17 @@ ENDDO PARSER
       write(6,'(1X,"CurrTime: ",i4.4, "/", i2.2, "/", i2.2, "T", i2.2, ":", i2.2, "   FWD:",L1)') &
            year, month, day, hour, minute, FWD
       do n=1,nlist
+         call ESMF_AlarmGet(list(n)%his_alarm, ringTime=CurrTime,  ringing=alarmEnabled, rc=STATUS); _VERIFY(STATUS)
+         call ESMF_TimeGet  ( CurrTime, timeString=TimeString, rc=status ) ; _VERIFY(STATUS)
+
+         read(timestring( 1: 4),'(i4.4)') year
+         read(timestring( 6: 7),'(i2.2)') month
+         read(timestring( 9:10),'(i2.2)') day
+         read(timestring(12:13),'(i2.2)') hour
+         read(timestring(15:16),'(i2.2)') minute
+         write(6,'(1X,"Alarm ", i3, " Ring Time: ",i4.4, "/", i2.2, "/", i2.2, "T", i2.2, ":", i2.2, " ringing: ", L1)') &
+              n, year, month, day, hour, minute, alarmEnabled
+
          call ESMF_AlarmGet(list(n)%his_alarm, prevRingTime=CurrTime,  enabled=alarmEnabled, rc=STATUS); _VERIFY(STATUS)
          call ESMF_TimeGet  ( CurrTime, timeString=TimeString, rc=status ) ; _VERIFY(STATUS)
 
@@ -2975,6 +2993,8 @@ ENDDO PARSER
       end if
 
       if (Ignore(n)) then
+         if (Mapl_am_i_root()) & 
+              WRITE(*,*) 'Ignoring alarm ', n
          ! "Exersise" the alarms and then do nothing
          Writing(n) = .false.
          if (ESMF_AlarmIsRinging ( list(n)%his_alarm )) then

@@ -338,6 +338,19 @@ FINT        = $(FINT4)
 ifdef FDEF1
       USER_FDEFS += $(D)$(FDEF1)
 endif
+#------------------------------------------------------------------------------
+# GCHP Adoint settings
+#------------------------------------------------------------------------------
+REGEXP               :=(^[Yy]|^[Yy][Ee][Ss])
+ifeq ($(shell [[ "$(ADJOINT)" =~ $(REGEXP) ]] && echo true),true)
+  USER_FDEFS         += $(D)ADJOINT
+endif
+
+REGEXP               :=(^[Yy]|^[Yy][Ee][Ss])
+ifeq ($(shell [[ "$(REVERSE_OPERATORS)" =~ $(REGEXP) ]] && echo true),true)
+  USER_FDEFS        += $(D)REVERSE_OPERATORS
+endif
+
 
 FDEFS     = $(D)sys$(ARCH) $(D)ESMA$(BPREC) $(DEF_SDF) $(USER_FDEFS)
 FINCS     = $(foreach dir,$(INC_ESMF), $(I)$(dir)) $(USER_FINCS)

@@ -482,6 +482,9 @@ CONTAINS
 #if defined( MODEL_GEOS )
                              FrstRewind, &
 #endif
+#if defined( ADJOINT )
+                             IsStarttime, &
+#endif
                              RC )
 !
 ! !USES:
@@ -523,7 +526,7 @@ CONTAINS
     USE UnitConv_Mod,       ONLY : Convert_Spc_Units, Print_Global_Species_Kg
 
     ! Diagnostics
-    USE Diagnostics_Mod,    ONLY : Set_Diagnostics_EndofTimestep
+    USE Diagnostics_Mod,    ONLY : Set_Diagnostics_EndofTimestep, Set_SpcAdj_Diagnostic
     USE Aerosol_Mod,        ONLY : Set_AerMass_Diagnostic
 
 #if defined( MODEL_GEOS )
@@ -554,6 +557,10 @@ CONTAINS
 #if defined( MODEL_GEOS )
     LOGICAL,        INTENT(IN)    :: FrstRewind  ! Is it the first rewind? 
 #endif
+#if defined ( ADJOINT )
+    LOGICAL,        INTENT(IN)    :: IsStarttime ! Have we reached the start time
+                                                 ! in an adjoint run
+#endif 
 !
 ! !INPUT/OUTPUT PARAMETERS:
 !
@@ -653,9 +660,10 @@ CONTAINS
 #if !defined( MODEL_GEOS )
     INTEGER                        :: N
 #endif
+#if defined ( ADJOINT )
     CHARACTER(len=ESMF_MAXSTR)     :: FD_SPEC, TRACNAME
     TYPE(Species),       POINTER   :: ThisSpc
-
+#endif
 
     !=======================================================================
     ! GIGC_CHUNK_RUN begins here 
@@ -1258,8 +1266,8 @@ CONTAINS
                            State_Grid, State_Met, RC )
        _ASSERT(RC==GC_SUCCESS, 'informative message here')
 #if defined( MODEL_GEOS )
-    !ENDIF
-    !ENDIF
+       !ENDIF
+       !ENDIF
 #else
     ENDIF
 #endif
@@ -1294,6 +1302,41 @@ CONTAINS
     ! Save specific humidity and dry air mass for total mixing ratio 
     ! adjustment in next timestep, if needed (ewl, 11/8/18)
     State_Met%SPHU_PREV = State_Met%SPHU
+#endif
+
+#ifdef ADJOINT
+       if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+       DO N = 1, State_Chm%nSpecies
+          ThisSpc => State_Chm%SpcData(N)%Info
+          write(*,*) 'SpcAdj(', TRIM(thisSpc%Name), ') = ',  &
+               State_Chm%SpeciesAdj(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
+       ENDDO
+       ENDIF
+    !=======================================================================
+    ! If this is an adjoint run, we need to check for the final (first)
+    ! timestep and multiply the scaling factor adjoint by the initial concs
+    !=======================================================================
+    IF (Input_Opt%IS_ADJOINT .and. IsStarttime) THEN
+       if (am_I_Root) WRITE(*,*) '   Adjoint multiplying SF_ADJ by ICS'
+       DO N = 1, State_Chm%nSpecies
+          ThisSpc => State_Chm%SpcData(N)%Info
+
+          ! Find the non-adjoint variable or this
+          TRACNAME = ThisSpc%Name
+
+          State_Chm%SpeciesAdj(:,:,:,N) = State_Chm%SpeciesAdj(:,:,:,N) * State_Chm%Species(:,:,:,N)
+          if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+             write(*,*) 'After conversion ',  &
+                  State_Chm%SpeciesAdj(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
+          ENDIF
+       ENDDO
+
+       CALL Set_SpcAdj_Diagnostic( am_I_Root, 'SpeciesAdj',                 &
+                                   State_Diag%SpeciesAdj,                   &
+                                   Input_Opt,  State_Chm,                   &
+                                   State_Grid, State_Met,  RC              )
+
+    ENDIF
 #endif
 
 

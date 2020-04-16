@@ -3072,6 +3072,9 @@ CONTAINS
     TYPE(ESMF_Time        )      :: currTime, stopTime
     TYPE(ESMF_TimeInterval)      :: tsChemInt
     CHARACTER(len=ESMF_MAXSTR)   :: timestring1, timestring2
+#ifdef ADJOINT
+    LOGICAL                      :: isStartTime
+#endif
 
     __Iam__('Run_')
 
@@ -3107,9 +3110,10 @@ CONTAINS
     CALL MAPL_Get(STATE, RUNALARM=ALARM, __RC__)
     IsChemTime = ESMF_AlarmIsRinging(ALARM, __RC__)
 
+    if (am_I_Root) WRITE(*,*) ' Chem clock is reverse? ', ESMF_ClockIsReverse(CLOCK)
     ! Turn off alarm: only if it was on and this is phase 2 (don't turn off
     ! after phase 1 since this would prevent phase 2 from being executed).
-    IF ( IsChemTime .AND. PHASE /= 1 ) THEN
+    IF ( IsChemTime .AND. PHASE /= 1 .and. .not. ESMF_ClockIsReverse(CLOCK)) THEN
        CALL ESMF_AlarmRingerOff(ALARM, __RC__ )
     ENDIF
 
@@ -4004,6 +4008,29 @@ CONTAINS
              second = 0
 #endif
 
+#ifdef ADJOINT
+             !=======================================================================
+             ! If this is an adjoint run, we need to check for the final (first)
+             ! timestep and multiply the scaling factor adjoint by the initial concs
+             !=======================================================================
+             isStartTime = .false.
+             IF (Input_Opt%IS_ADJOINT) THEN
+                call ESMF_ClockGet(clock, currTime=currTime, startTime=stopTime,  __RC__ )
+
+                ! call ESMF_TimeIntervalSet(tsChemInt, s_r8=real(-tsChem, 8), __RC__ )
+                call ESMF_TimeIntervalSet(tsChemInt, s_r8=real(0, 8), __RC__ )
+
+                call ESMF_TimeGet(currTime + tsChemInt, timeString=timestring1, __RC__ )
+                call ESMF_TimeGet(stopTime, timeString=timestring2, __RC__ )
+
+                if (memdebuglevel > 0 .and. am_I_Root) &
+                     WRITE(*,*) '   Adjoint checking if ' // trim(timestring1) // ' == ' // trim(timestring2)
+
+                if (currTime + tsChemInt == stopTime) THEN
+                   isStartTime = .TRUE.
+                ENDIF
+             ENDIF
+#endif
              ! Run the GEOS-Chem column chemistry code for the given phase
              CALL GIGC_Chunk_Run( am_I_Root  = am_I_Root,  & ! Is this root PET?
                                   GC         = GC,         & ! Grid comp ref. 
@@ -4027,6 +4054,9 @@ CONTAINS
                                   IsChemTime = IsChemTime, & ! Time for chem?
 #if defined( MODEL_GEOS )
                                   FrstRewind = FirstRewind,& ! First rewind?
+#endif
+#ifdef ADJOINT
+                                  isStartTime = isStartTime, & !back to the first timestep in the reverse run?
 #endif
                                   __RC__                  )  ! Success or fail?
 
@@ -4052,41 +4082,6 @@ CONTAINS
 #if !defined( MODEL_GEOS )
              where( State_Met%HFLUX .eq. 0.) State_Met%HFLUX = 1e-5
 #endif
-          ENDIF
-          !=======================================================================
-          ! If this is an adjoint run, we need to check for the final (first)
-          ! timestep and multiply the scaling factor adjoint by the initial concs
-          !=======================================================================
-          IF (Input_Opt%IS_ADJOINT) THEN
-             call ESMF_ClockGet(clock, currTime=currTime, stopTime=stopTime,  __RC__ )
-
-             call ESMF_TimeIntervalSet(tsChemInt, s_r8=real(tsChem, 8), __RC__ )
-
-             call ESMF_TimeGet(currTime + tsChemInt, timeString=timestring1, __RC__ )
-             call ESMF_TimeGet(stopTime, timeString=timestring2, __RC__ )
-             
-             if (am_I_Root) WRITE(*,*) '   Adjoint checking if ' // trim(timestring1) // ' == ' // trim(timestring2)
-
-             if (currTime + tsChemInt == stopTime) THEN
-
-                if (am_I_Root) WRITE(*,*) '   Adjoint multiplying SF_ADJ by ICS'
-                DO N = 1, State_Chm%nSpecies
-                   ThisSpc => State_Chm%SpcData(N)%Info
-
-                   ! Find the non-adjoint variable or this
-                   TRCNAME = ThisSpc%Name
-
-                   if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
-                      write(*,*) 'Before conversion ',  &
-                           State_Chm%SpeciesAdj(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
-                   ENDIF
-                   State_Chm%SpeciesAdj(:,:,:,N) = State_Chm%SpeciesAdj(:,:,:,N) * State_Chm%Species(:,:,:,N)
-                   if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
-                      write(*,*) 'After conversion ',  &
-                           State_Chm%SpeciesAdj(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
-                   ENDIF
-                ENDDO
-             ENDIF
           ENDIF
 
        

@@ -57,6 +57,9 @@ module MAPL_CapGridCompMod
      procedure :: initialize_history
      procedure :: run
      procedure :: step
+#ifdef ADJOINT
+     procedure :: step_reverse
+#endif
      procedure :: finalize
      procedure :: get_model_duration
      procedure :: get_am_i_root
@@ -162,6 +165,7 @@ contains
     character(len=ESMF_MAXSTR )           :: DYCORE
     character(len=ESMF_MAXPATHLEN) :: user_dirpath,tempString
     logical                      :: tend,foundPath
+    integer                      :: reverseTime
 
 
     type (MAPL_MetaComp), pointer :: MAPLOBJ
@@ -462,6 +466,13 @@ contains
     ! Detect if this a regular replay in the AGCM.rc
     ! ----------------------------------------------
     call ESMF_ConfigGetAttribute(cap%cf_root, value=ReplayMode, Label="REPLAY_MODE:", default="NoReplay", rc=status)
+    _VERIFY(STATUS)
+
+    ! pass REVERSE_TIME resource to history config
+    call MAPL_GetResource(MAPLOBJ, reverseTime, "REVERSE_TIME:", default = 0, rc = status) 
+    _VERIFY(status)
+
+    call MAPL_ConfigSetAttribute(cap%cf_hist, value=reverseTime,  Label="REVERSE_TIME:",  rc=status)
     _VERIFY(STATUS)
 
 
@@ -977,6 +988,18 @@ contains
     procedure(), pointer :: root_set_services
     type(ESMF_Time)          :: stopTime, currTime
 
+    
+      ! instantiate Alarm lists
+      type(ESMF_Alarm) :: alarm(200), hist_alarm(200)
+
+      ! local variables for Get methods
+      integer :: ringingAlarmCount  ! at any time step (0 to NUMALARMS)
+      integer :: alarmCount, hist_alarmCount
+
+      ! name, loop counter, result code
+      character (len=ESMF_MAXSTR) :: name
+      integer :: i, result
+
     cap => get_CapGridComp_from_gc(gc)
     MAPLOBJ => get_MetaComp_from_gc(gc)
 
@@ -988,38 +1011,73 @@ contains
     call MAPL_GetResource(MAPLOBJ, reverse_time, label='REVERSE_TIME:', &
                           default=0, rc = status)
     _VERIFY(STATUS)
+
     if ( reverse_time == 1 ) then
+
+       call ESMF_ClockGetAlarmList(cap%clock, ESMF_ALARMLIST_ALL, &
+            alarmList=alarm, alarmCount=alarmCount, rc = status )
+       _VERIFY(STATUS)
+       
+       call ESMF_ClockGetAlarmList(cap%clock_hist, ESMF_ALARMLIST_ALL, &
+            alarmList=hist_alarm, alarmCount=hist_alarmCount, rc = status )
+       _VERIFY(STATUS)
+
+       if (MAPL_Am_I_Root()) THEN
+
+          WRITE(*,1003) 'clock', alarmCount
+
+          WRITE(*,1003) 'clock_hist', hist_alarmCount
+
+          WRITE(*,1001) cap%nsteps
+       endif
+1001   FORMAT('  MAPL_CapGC running for ', i3, ' timesteps')
+1003   FORMAT(3x, a10, ' has ', i3, ' alarms')
+       ! Need to run time loop forwards first so alarms are
+       ! called properly on reverse time run
+       ! Time Loop starts by checking for Segment Ending Time
+       !-----------------------------------------------------
+       if (.true.) then
+       FAKE_TIME_LOOP: do n = 1, cap%nsteps
+
+          if (MAPL_Am_I_Root()) &
+               WRITE(*,1002) n, cap%nsteps
+1002   FORMAT('  MAPL_CapGC running step ', i3, ' of ', i3)
+
+          if (.not.cap%lperp) then
+             done = ESMF_ClockIsDone(cap%clock_hist, rc = status)
+             _VERIFY(status)
+             if (done .and. MAPL_Am_I_Root()) &
+                  WRITE(*,*) '   MAPL_CapGC: No perpetual clock and history is done. Exiting loop'
+             if (done) exit
+          endif
+
+
+          ! Advance the Clock before running History and Record
+          ! ---------------------------------------------------
+
+          call ESMF_ClockAdvance(cap%clock, ringingAlarmCount=ringingAlarmCount, rc = status)
+          _VERIFY(STATUS)
+
+          call ESMF_ClockAdvance(cap%clock_hist, ringingAlarmCount=ringingAlarmCount, rc = status)
+          _VERIFY(STATUS)
+
+       enddo FAKE_TIME_LOOP ! end of time loop
+       endif
+       if (MAPL_Am_I_Root()) &
+            WRITE(*,*) '  MAPL_CapGC finished time loop, reversing clocks'
+       
+       if (MAPL_Am_I_Root()) &
+            WRITE(*,*) '  MAPL_CapGC reversing clock'
        ! Reverse the direction of clock. Now the calls to ESMF_ClockAdvance
        ! would tick the clock backwards
        call ESMF_ClockSet ( cap%clock, direction=ESMF_DIRECTION_REVERSE, &
-                            rc=status )
+                            advanceCount=0, rc=status )
        _VERIFY(STATUS)
        
-       ! Also, for this example, we need to move current time to the end
-       ! In the adjoint code this step might not be needed,
-       ! since most likely you already would be at the stop time
-       call ESMF_ClockGet ( cap%clock, stopTime=stopTime, rc=status )
-       _VERIFY(STATUS)
-       currTime = stopTime ! we want to start from the "stop time"
-       call ESMF_ClockSet ( cap%clock, currTime=currTime, rc=status )
-       _VERIFY(STATUS)
-
-       ! We also have to do this for the History clock...?
-       ! Reverse the direction of clock. Now the calls to ESMF_ClockAdvance
-       ! would tick the clock backwards
+       ! We also have to do this for the History clock
        call ESMF_ClockSet ( cap%clock_hist, direction=ESMF_DIRECTION_REVERSE, &
-                            rc=status )
+                            advancecount=0, rc=status )
        _VERIFY(STATUS)
-       
-       ! Also, for this example, we need to move current time to the end
-       ! In the adjoint code this step might not be needed,
-       ! since most likely you already would be at the stop time
-       call ESMF_ClockGet ( cap%clock_hist, stopTime=stopTime, rc=status )
-       _VERIFY(STATUS)
-       currTime = stopTime ! we want to start from the "stop time"
-       call ESMF_ClockSet ( cap%clock_hist, currTime=currTime, rc=status )
-       _VERIFY(STATUS)
-
     endif
 
     if (.not. cap%printspec > 0) then
@@ -1030,6 +1088,8 @@ contains
 
           call MAPL_MemUtilsWrite(cap%vm, 'MAPL_Cap:TimeLoop', rc = status)
           _VERIFY(status)
+          ! if (MAPL_Am_I_Root()) &
+          !      WRITE(*,1002) n, cap%nsteps
 
           if (.not.cap%lperp) then
              if ( reverse_time == 0 ) then
@@ -1038,13 +1098,32 @@ contains
                 done = ESMF_ClockIsDone(cap%clock_hist, rc = status)
              endif
              _VERIFY(status)
+             if (MAPL_Am_I_Root() .and. done) THEN
+                call ESMF_ClockPrint(cap%clock_hist, options='currTime string', rc = status)
+                _VERIFY(status)
+                call ESMF_ClockPrint(cap%clock_hist, options='stopTime string', rc = status)
+                _VERIFY(status)
+                call ESMF_ClockPrint(cap%clock_hist, options='direction', rc = status)
+                _VERIFY(status)
+             endif
              if (done) exit
           endif
 
+#ifdef ADJOINT
+       if (.not. reverse_time) THEN
+#endif
           call cap%step(status)
+#ifdef ADJOINT
+       ELSE
+          if (MAPL_Am_I_Root()) &
+               print *, 'Calling step_reverse'
+          call cap%step_reverse(status)
+       ENDIF
+#endif
           _VERIFY(status)
 
        enddo TIME_LOOP ! end of time loop
+
 
     end if
 
@@ -1182,7 +1261,87 @@ contains
     _RETURN(ESMF_SUCCESS)
   end subroutine step
 
+#ifdef ADJOINT
+  subroutine step_reverse(this, rc)
+    class(MAPL_CapGridComp), intent(inout) :: this
+    integer, intent(out) :: rc
+    integer :: AGCM_YY, AGCM_MM, AGCM_DD, AGCM_H, AGCM_M, AGCM_S
+    integer :: status
 
+    
+    type(ESMF_Time) :: currTime
+
+    call ESMF_GridCompGet(this%gc, vm = this%vm)
+    ! Run the ExtData Component
+    ! --------------------------
+
+    call ESMF_GridCompRun(this%gcs(this%extdata_id), importState = this%child_imports(this%extdata_id), &
+         exportState = this%child_exports(this%extdata_id), &
+         clock = this%clock, userrc = status)
+    _VERIFY(status)
+
+    ! Call Record for intermediate checkpoint (if desired)
+    !  Note that we are not doing a Record for History.
+    ! ------------------------------------------------------
+    ! don't output reverse checkpoints
+    ! call ESMF_GridCompWriteRestart(this%gcs(this%root_id), importstate = this%child_imports(this%root_id), &
+    !      exportstate = this%child_exports(this%root_id), &
+    !      clock = this%clock_hist, userrc = status)
+    ! _VERIFY(status)
+
+    ! Advance the Clock before running History and Record
+    ! ---------------------------------------------------
+
+    call ESMF_ClockAdvance(this%clock, rc = status)
+    _VERIFY(STATUS)
+    call ESMF_ClockAdvance(this%clock_hist, rc = status)
+    _VERIFY(STATUS)
+
+    ! Update Perpetual Clock
+    ! ----------------------
+
+    if (this%lperp) then
+       call Perpetual_Clock(this%clock, this%clock_hist, this%perpetual_year, this%perpetual_month, this%perpetual_day, status)
+       _VERIFY(status)
+    end if
+
+    call ESMF_ClockGet(this%clock, CurrTime = currTime, rc = status)
+    _VERIFY(status)
+    call ESMF_TimeGet(CurrTime, YY = AGCM_YY, &
+         MM = AGCM_MM, &
+         DD = AGCM_DD, &
+         H  = AGCM_H , &
+         M  = AGCM_M , &
+         S  = AGCM_S, rc=status)
+    _VERIFY(status)
+    if (this%AmIRoot) write(6,1000) AGCM_YY,AGCM_MM,AGCM_DD,AGCM_H,AGCM_M,AGCM_S
+1000 format(1x,'AGCM Date: ',i4.4,'/',i2.2,'/',i2.2,2x,'Time: ',i2.2,':',i2.2,':',i2.2)
+
+
+    ! Run the Gridded Component
+    ! --------------------------
+    call ESMF_GridCompRun(this%gcs(this%root_id), importstate = this%child_imports(this%root_id), &
+         exportstate = this%child_exports(this%root_id), &
+         clock = this%clock, userrc = status)
+    _VERIFY(status)
+
+    ! Synchronize for Next TimeStep
+    ! -----------------------------
+
+    call ESMF_VMBarrier(this%vm, rc = status)
+    _VERIFY(STATUS)
+
+    ! Call History Run for Output
+    ! ---------------------------
+
+    call ESMF_GridCompRun(this%gcs(this%history_id), importstate=this%child_imports(this%history_id), &
+         exportstate = this%child_exports(this%history_id), &
+         clock = this%clock_hist, userrc = status)
+    _VERIFY(status)
+
+    _RETURN(ESMF_SUCCESS)
+  end subroutine step_reverse
+#endif
   ! !IROUTINE: MAPL_ClockInit -- Sets the clock
 
   ! !INTERFACE: 
