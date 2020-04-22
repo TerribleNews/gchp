@@ -193,7 +193,13 @@ CONTAINS
     CHARACTER(LEN=ESMF_MAXSTR)     :: FD_SPEC
     REAL(fp)                       :: d, dmin
     INTEGER                        :: imin, jmin, NFD, LFD
+    INTEGER                        :: IFD, JFD
     LOGICAL                        :: FD_GLOBAL
+
+    ! Need to get gloabl grid information for some FD spot tests
+    TYPE(ESMF_Grid)                :: grid           ! ESMF Grid object
+    INTEGER                        :: IL_PET, IU_PET ! Global lon bounds on this PET
+    INTEGER                        :: JL_PET, JU_PET ! Global lat bounds on this PET
 
     ! Model phase: fwd, TLM, ADJOINT
     CHARACTER(LEN=ESMF_MAXSTR)     :: ModelPhase
@@ -325,56 +331,104 @@ CONTAINS
        _VERIFY(STATUS)
        NFD = Ind_(FD_SPEC)
 
-       call ESMF_ConfigGetAttribute(CF, FD_LAT, &
-            Label="FD_LAT:", RC=STATUS)
+       call ESMF_ConfigGetAttribute(CF, IFD, &
+            Label="IFD:", default=-1, RC=STATUS)
        _VERIFY(STATUS)
 
-       call ESMF_ConfigGetAttribute(CF, FD_LON, &
-            Label="FD_LON:", RC=STATUS)
+       call ESMF_ConfigGetAttribute(CF, JFD, &
+            Label="JFD:", default=-1, RC=STATUS)
        _VERIFY(STATUS)
+
+       ! See if we specified IFD and JFD in GCHP.rc
+       IF ( IFD > 0 .and. JFD > 0 ) THEN
+
+          ! Get the ESMF grid attached to this gridded component
+          CALL ESMF_GridCompGet( GC, grid=Grid, __RC__ )
+
+          ! Get the upper and lower bounds of on each PET using MAPL
+          CALL MAPL_GridGetInterior( Grid, IL_PET, IU_PET, JL_PET, JU_PET )
+
+          if (IL_PET .le. IFD .and. IFD .lt. IU_PET .and. &
+               JL_PET .le. JFD .and. JFD .lt. JU_PET) THEN
+             Input_Opt%IS_FD_SPOT_THIS_PET = .true.
+             Input_opt%IFD = IFD - IL_PET + 1
+             Input_Opt%JFD = JFD - JL_PET + 1
+
+             ! set these for debug printing
+             DMIN = 0.0
+             IMIN = Input_Opt%IFD
+             JMIN = Input_Opt%JFD
+          ENDIF
+
+       ELSE
+
+          call ESMF_ConfigGetAttribute(CF, FD_LAT, &
+               Label="FD_LAT:", default=-999.0d0, RC=STATUS)
+          _VERIFY(STATUS)
+
+          call ESMF_ConfigGetAttribute(CF, FD_LON, &
+               Label="FD_LON:", default=-999.0d0, RC=STATUS)
+          _VERIFY(STATUS)
+
+          _ASSERT( FD_LAT .ne. -999.0d0 .and. FD_LON .ne. -999.0d0, 'FD_SPOT requires either IFD and JFD or FD_LAT and FD_LON be set in GCHP.rc')
+
+
+          dmin = 99999.9
+          imin = -1
+          jmin = -1
+          ! try to find lat lon grid cell closest to 44.65, -63.58 (Halifax, NS)
+          DO I = 1, state_grid%nx
+             DO J = 1, state_grid%ny
+                d = sqrt((state_grid%XMID(I,J) - FD_LON)**2 + &
+                     (state_grid%YMID(I,J) - FD_LAT)**2)
+                if (d < dmin) then
+                   dmin = d
+                   imin = i
+                   jmin = j
+                endif
+             enddo
+          enddo
+          ! this is terrible. We need a better way to figure out if we're really in
+          ! a grid cell, bbut I don't know how to do that. For now we're just hardcoding
+          ! to the value for C24 and hoping for no points near cubed-sphere face
+          ! boundaries
+          if (dmin < 3.2) then
+             ! getting the global grid offset is possible, see Chem_GridCompMod.F90:Extract_
+             Input_Opt%IS_FD_SPOT_THIS_PET = .true.
+             Input_Opt%IFD = IMIN
+             Input_Opt%JFD = JMIN
+
+          end if
+       ENDIF
+
+       Input_Opt%NFD = NFD
 
        call ESMF_ConfigGetAttribute(CF, LFD, &
             Label="LFD:", RC=STATUS)
        _VERIFY(STATUS)
-       
-       Input_Opt%NFD = NFD
 
-       dmin = 99999.9
-       imin = -1
-       jmin = -1
-       ! try to find lat lon grid cell closest to 44.65, -63.58 (Halifax, NS)
-       DO I = 1, state_grid%nx
-          DO J = 1, state_grid%ny
-             d = sqrt((state_grid%XMID(I,J) - FD_LON)**2 + &
-                  (state_grid%YMID(I,J) - FD_LAT)**2)
-             if (d < dmin) then
-                dmin = d
-                imin = i
-                jmin = j
-             endif
-          enddo
-       enddo
-       ! this is terrible. We need a better way to figure out if we're really in
-       ! a grid cell, bbut I don't know how to do that. For now we're just hardcoding
-       ! to the value for C24 and hoping for no points near cubed-sphere face
-       ! boundaries
-       if (dmin < 3.2) then
+
+       Input_Opt%LFD = LFD
+
+       IF ( Input_Opt%IS_FD_SPOT_THIS_PET ) THEN
           write (*,1011) myPet, dmin, imin, jmin, &
                state_grid%YMID(IMIN,JMIN), state_grid%XMID(IMIN,JMIN)
 
-          ! getting the global grid offset is possible, see Chem_GridCompMod.F90:Extract_
-          Input_Opt%IS_FD_SPOT_THIS_PET = .true.
-          Input_Opt%IFD = IMIN
-          Input_Opt%JFD = JMIN
-          Input_Opt%LFD = LFD
-          WRITE (*, 1016) TRIM(FD_SPEC), state_chm%species(IMIN, JMIN, LFD, NFD)
-          IF (Input_Opt%is_adjoint) &
-               WRITE (*, 1019) TRIM(FD_SPEC), state_chm%speciesadj(IMIN, JMIN, LFD, NFD)
+#ifdef DEBUG
+          ! Get the ESMF grid attached to this gridded component
+          CALL ESMF_GridCompGet( GC, grid=Grid, __RC__ )
 
-       end if
-1011   FORMAT('Found Halifax on PET ', i5, ' ', f7.2, &
+          ! Get the upper and lower bounds of on each PET using MAPL
+          CALL MAPL_GridGetInterior( Grid, IL_PET, IU_PET, JL_PET, JU_PET )
+          WRITE(*,1013) IL_PET, IU_PET
+          WRITE(*,1014) JL_PET, JU_PET
+#endif
+          
+         ENDIF
+
+1011   FORMAT('Found FD_SPOT on PET ', i5, ' ', f7.2, &
             ' degrees from cell ', i3, ', ', i3, ' (', f7.2, ', ', f7.2, ')')
-1012   FORMAT('Did not find Halifax on PET ', i5, ' ', f7.2,&
+1012   FORMAT('Did not find FD_SPOT on PET ', i5, ' ', f7.2,&
             ' degrees from cell ', i3, ', ', i3, ' (', f7.2, ', ', f7.2, ')')
 1013   FORMAT('   XminOffset = ', i3, '     XmaxOffset = ', i3)
 1014   FORMAT('   YminOffset = ', i3, '     YmaxOffset = ', i3)

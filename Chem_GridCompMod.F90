@@ -1734,6 +1734,10 @@ CONTAINS
     REAL(ESMF_KIND_R8), POINTER  :: Ptr3D_R8(:,:,:) => NULL()
 #endif
 
+    INTEGER                     :: IL_WORLD, JL_WORLD    ! # lower indices in global grid
+    INTEGER                     :: IU_WORLD, JU_WORLD    ! # upper indices in global grid
+
+
     __Iam__('Initialize_')
 
     !=======================================================================
@@ -1784,6 +1788,10 @@ CONTAINS
                    IM_WORLD    = IM_WORLD,    &  ! # of lons in global grid
                    JM_WORLD    = JM_WORLD,    &  ! # of lats  in global grid
                    LM_WORLD    = LM_WORLD,    &  ! # of levels in global grid
+                   IL_WORLD    = IL_WORLD,    &  ! start index of lons in global grid on this PET
+                   IU_WORLD    = IU_WORLD,    &  ! end   index of lons in global grid on this PET
+                   JL_WORLD    = JL_WORLD,    &  ! start index of lats in global grid on this PET
+                   JU_WORLD    = JU_WORLD,    &  ! end   index of lats in global grid on this PET
                    nymdB       = nymdB,       &  ! YYYYMMDD @ start of sim
                    nhmsB       = nhmsB,       &  ! hhmmss   @ end   of sim
                    nymdE       = nymdE,       &  ! YYYMMDD  @ start of sim
@@ -4910,6 +4918,7 @@ CONTAINS
                        localPet,   petCount,                             &
                        IM,         JM,       LM,                         &     
                        IM_WORLD,   JM_WORLD, LM_WORLD,                   &
+                       IL_WORLD,   IU_WORLD, JL_WORLD, JU_WORLD,         &
                        lonCtr,     latCtr,   advCount,                   &
                        nymdB,      nymdE,    nymd,    nhmsB,  nhmsE,     &
                        nhms,       year,     month,   day,    dayOfYr,   &
@@ -4953,6 +4962,10 @@ CONTAINS
     INTEGER,             INTENT(OUT), OPTIONAL :: IM_WORLD    ! Global # lons
     INTEGER,             INTENT(OUT), OPTIONAL :: JM_WORLD    ! Global # lats
     INTEGER,             INTENT(OUT), OPTIONAL :: LM_WORLD    ! Global # levs
+    INTEGER,             INTENT(OUT), OPTIONAL :: IL_WORLD    ! Global start lon index on this PET
+    INTEGER,             INTENT(OUT), OPTIONAL :: IU_WORLD    ! Global end   lon index on this PET
+    INTEGER,             INTENT(OUT), OPTIONAL :: JL_WORLD    ! Global start lat index on this PET
+    INTEGER,             INTENT(OUT), OPTIONAL :: JU_WORLD    ! Global end   lat index on this PET
                                                               
     !----------------------------------
     ! Date and time variables
@@ -5311,6 +5324,11 @@ CONTAINS
     IF ( PRESENT( IM_WORLD ) ) IM_WORLD = globDims(1)
     IF ( PRESENT( JM_WORLD ) ) JM_WORLD = globDims(2)
     IF ( PRESENT( LM_WORLD ) ) LM_WORLD = globDims(3)
+
+    IF ( PRESENT( IL_WORLD ) ) IL_WORLD = IL
+    IF ( PRESENT( IU_WORLD ) ) IU_WORLD = IU
+    IF ( PRESENT( JL_WORLD ) ) JL_WORLD = JL
+    IF ( PRESENT( JU_WORLD ) ) JU_WORLD = JU
 
     ! Longitude values on this PET
     IF ( PRESENT( lonCtr ) ) THEN
