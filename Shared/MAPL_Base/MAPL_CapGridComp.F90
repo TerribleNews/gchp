@@ -1084,7 +1084,7 @@ contains
 
        ! Time Loop starts by checking for Segment Ending Time
        !-----------------------------------------------------
-       TIME_LOOP: do n = 1, cap%nsteps
+       TIME_LOOP: do n = 1, cap%nsteps+1
 
           call MAPL_MemUtilsWrite(cap%vm, 'MAPL_Cap:TimeLoop', rc = status)
           _VERIFY(status)
@@ -1117,7 +1117,7 @@ contains
        ELSE
           if (MAPL_Am_I_Root()) &
                print *, 'Calling step_reverse'
-          call cap%step_reverse(status)
+          call cap%step_reverse(n .eq. 1, status)
        ENDIF
 #endif
           _VERIFY(status)
@@ -1262,8 +1262,9 @@ contains
   end subroutine step
 
 #ifdef ADJOINT
-  subroutine step_reverse(this, rc)
+  subroutine step_reverse(this, first, rc)
     class(MAPL_CapGridComp), intent(inout) :: this
+    logical, intent(in)  :: first
     integer, intent(out) :: rc
     integer :: AGCM_YY, AGCM_MM, AGCM_DD, AGCM_H, AGCM_M, AGCM_S
     integer :: status
@@ -1292,10 +1293,12 @@ contains
     ! Advance the Clock before running History and Record
     ! ---------------------------------------------------
 
+    if (.not. first) THEN
     call ESMF_ClockAdvance(this%clock, rc = status)
     _VERIFY(STATUS)
     call ESMF_ClockAdvance(this%clock_hist, rc = status)
-    _VERIFY(STATUS)
+    _VERIFY(STATUS) 
+    end if
 
     ! Update Perpetual Clock
     ! ----------------------

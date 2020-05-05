@@ -509,6 +509,7 @@ CONTAINS
 #endif
 #ifdef ADJOINT
     INTEGER                       :: restartAttrAdjoint
+    LOGICAL                       :: useCFMaskFile
 #endif
 
     __Iam__('SetServices')
@@ -606,6 +607,22 @@ CONTAINS
        VLOCATION          = MAPL_VLocationEdge,    &
                                                       RC=STATUS  )
     _VERIFY(STATUS)
+#endif
+
+#ifdef ADJOINT
+    CALL ESMF_ConfigGetAttribute( myState%myCF, useCFMaskFile, &
+         Label="USE_CF_MASK_FILE:", Default=.false., __RC__ )
+
+    IF (useCFMaskFile) THEN
+       call MAPL_AddImportSpec(GC,                    &
+            SHORT_NAME         = 'CFN_MASK',            &
+            LONG_NAME          = 'cost_function_Mask',  &
+            UNITS              = '1',                   &
+            DIMS               = MAPL_DimsHorzVert,     &
+            VLOCATION          = MAPL_VLocationCenter,  &
+            RC=STATUS  )
+       _VERIFY(STATUS)
+    Endif
 #endif
 
 !
@@ -3082,6 +3099,7 @@ CONTAINS
     CHARACTER(len=ESMF_MAXSTR)   :: timestring1, timestring2
 #ifdef ADJOINT
     LOGICAL                      :: isStartTime
+    REAL(ESMF_KIND_r8), POINTER  :: CostFuncMask(:,:,:) => NULL()
 #endif
 
     __Iam__('Run_')
@@ -3190,6 +3208,13 @@ CONTAINS
        call MAPL_GetPointer ( IMPORT, PLE,      'PLE',     __RC__ )
        call MAPL_GetPointer ( IMPORT, AIRDENS,  'AIRDENS', __RC__ )
        !ENDIF
+#endif
+#ifdef ADJOINT
+       call MAPL_GetPointer( IMPORT, CostFuncMask, &
+            'CFN_MASK', notFoundOK=.TRUE.,         &
+            __RC__ )
+       if (MAPL_Am_I_Root() .and. .not. ASSOCIATED(CostFuncMask)) &
+            WRITE(*,*) ' No CFN_MASK import variable found'
 #endif
 
 #if defined( MODEL_GEOS )
@@ -4024,8 +4049,12 @@ CONTAINS
              isStartTime = .false.
              IF (Input_Opt%IS_ADJOINT) THEN
                 call ESMF_ClockGet(clock, currTime=currTime, startTime=stopTime,  __RC__ )
+             else
+                call ESMF_ClockGet(clock, currTime=currTime, stopTime=stopTime, __RC__ )
+             Endif
 
                 ! call ESMF_TimeIntervalSet(tsChemInt, s_r8=real(-tsChem, 8), __RC__ )
+             ! this variable is set to zero but I'm leaving it in case I need this code later
                 call ESMF_TimeIntervalSet(tsChemInt, s_r8=real(0, 8), __RC__ )
 
                 call ESMF_TimeGet(currTime + tsChemInt, timeString=timestring1, __RC__ )
@@ -4037,7 +4066,6 @@ CONTAINS
                 if (currTime + tsChemInt == stopTime) THEN
                    isStartTime = .TRUE.
                 ENDIF
-             ENDIF
 #endif
              ! Run the GEOS-Chem column chemistry code for the given phase
              CALL GIGC_Chunk_Run( am_I_Root  = am_I_Root,  & ! Is this root PET?
@@ -4725,12 +4753,30 @@ CONTAINS
 
        ! Is this a tracer?
        IND = IND_( TRIM(ThisSpc%Name) )
+#ifndef ADJOINT
        IF ( IND >= 0 ) CYCLE
+#else
+       IF ( IND >= 0 ) THEN
+          ! Get data from internal state and copy to species array
+          CALL MAPL_GetPointer( INTSTATE, Ptr3D_R8, TRIM(SPFX) // &
+               TRIM(ThisSpc%Name), &
+               notFoundOK=.TRUE., __RC__ )
+          IF ( .NOT. ASSOCIATED(Ptr3D_R8) .and. MAPL_am_I_Root() ) &
+               WRITE(*,999) TRIM(SPFX) // TRIM(ThisSpc%Name), IND
+          IF ( .NOT. ASSOCIATED(Ptr3D_R8) ) CYCLE
+999       FORMAT(' No INTERNAL pointer found for ', a12, ' with IND ', i3)
+
+          State_Chm%Species(:,:,:,IND) = Ptr3D_R8(:,:,State_Grid%NZ:1:-1)
+          ! Verbose 
+          if ( MAPL_am_I_Root()) write(*,*)                &
+               'Species copied from INTERNAL state: ',  &
+               TRIM(ThisSpc%Name)
+       ELSE
+#endif
 
        ! Get data from internal state and copy to species array
        CALL MAPL_GetPointer( INTSTATE, Ptr3D_R8, TRIM(ThisSpc%Name), &
                              notFoundOK=.TRUE., __RC__ )
-       IF ( .NOT. ASSOCIATED(Ptr3D_R8) ) CYCLE
        Ptr3D_R8 = State_Chm%Species(:,:,State_Grid%NZ:1:-1,IND)
        Ptr3D_R8 => NULL()
 
@@ -4738,6 +4784,9 @@ CONTAINS
        if ( MAPL_am_I_Root()) write(*,*)                &
                 'Species written to INTERNAL state: ',  &
                 TRIM(ThisSpc%Name)
+#ifdef ADJOINT
+       endif
+#endif
     ENDDO
 
     CALL MAPL_GetPointer( INTSTATE, Ptr3d, 'H2O2AfterChem',  &
@@ -7989,6 +8038,8 @@ subroutine Adjoint_StateRefresh( GC, IMPORT, EXPORT, CLOCK, RC )
   _VERIFY(STATUS)
   call MAPL_DestroyFile(unit = UNIT, rc=STATUS)
   _VERIFY(STATUS)
+  CALL FREE_FILE(UNIT, RC=STATUS)
+  _VERIFY(STATUS)
 
   FNAME = 'gcadj_internal_checkpoint.' // trim(datestamp) // '.nc4'
 
@@ -8004,6 +8055,8 @@ subroutine Adjoint_StateRefresh( GC, IMPORT, EXPORT, CLOCK, RC )
   endif
   _VERIFY(STATUS)
   call MAPL_DestroyFile(unit = UNIT, rc=STATUS)
+  _VERIFY(STATUS)
+  CALL FREE_FILE(UNIT, RC=STATUS)
   _VERIFY(STATUS)
 
   _RETURN(ESMF_SUCCESS)
