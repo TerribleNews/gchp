@@ -1147,7 +1147,7 @@ contains
                 ic=index(1,i,j)
                 jc=index(2,i,j)
 
-                ADJOINT: if(.not.transpose) then
+                ADJOINT_LOOP: if(.not.transpose) then
                    UNDEF: if( .not. present(misval)) then
                       latlon(ii,j) = weight(1,i,j)*cubsph(ic  ,jc  ,tile)  &
                                    + weight(2,i,j)*cubsph(ic  ,jc+1,tile)  &
@@ -1191,7 +1191,7 @@ contains
                    cubsph(ic+1,jc+1,tile)=cubsph(ic+1,jc+1,tile)+weight(3,i,j)*latlon(ii,j)
                    cubsph(ic+1,jc  ,tile)=cubsph(ic+1,jc  ,tile)+weight(4,i,j)*latlon(ii,j)
 
-                end if ADJOINT
+                end if ADJOINT_LOOP
              endif HAVE_POINT
 
           enddo JLOOP
@@ -1244,7 +1244,7 @@ contains
              i1 = id1(i,j)
              i2 = id2(i,j)
 
-             ADJOINT: if(.not.transpose) then    
+             ADJOINT_LOOP: if(.not.transpose) then    
 
                 UNDEF: if(.not. present(misval)) then
                    cubsph(i,jx,k) = weight(1,i,j)*latlon(i1,j1  )   &
@@ -1287,7 +1287,7 @@ contains
                 latlon(i2,j1+1) = latlon(i2,j1+1) + weight(3,i,j)*cubsph(i,jx,k)
                 latlon(i1,j1+1) = latlon(i1,j1+1) + weight(4,i,j)*cubsph(i,jx,k)
 
-             end if ADJOINT
+             end if ADJOINT_LOOP
 
           enddo FACE_X
        enddo FACE_Y

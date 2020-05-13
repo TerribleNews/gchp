@@ -468,9 +468,12 @@ contains
     call ESMF_ConfigGetAttribute(cap%cf_root, value=ReplayMode, Label="REPLAY_MODE:", default="NoReplay", rc=status)
     _VERIFY(STATUS)
 
-    ! pass REVERSE_TIME resource to history config
+    ! pass REVERSE_TIME resource to history and root config
     call MAPL_GetResource(MAPLOBJ, reverseTime, "REVERSE_TIME:", default = 0, rc = status) 
     _VERIFY(status)
+
+    call MAPL_ConfigSetAttribute(cap%cf_root, value=reverseTime,  Label="REVERSE_TIME:",  rc=status)
+    _VERIFY(STATUS)
 
     call MAPL_ConfigSetAttribute(cap%cf_hist, value=reverseTime,  Label="REVERSE_TIME:",  rc=status)
     _VERIFY(STATUS)

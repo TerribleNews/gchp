@@ -374,7 +374,7 @@ contains
       isAdjoint = .false.
       if (trim(ModelPhase) == 'ADJOINT') &
            isAdjoint = .true.
-
+      if (isAdjoint) dt = -dt
 #endif
       ! Start up FV if AdvCore is running without FV3_DynCoreIsRunning
       !--------------------------------------------------
@@ -684,6 +684,10 @@ contains
          !------------------
          if (AdvCore_Advection>0 .and. .not. firstRun) then
          call WRITE_PARALLEL("offline_tracer_advection")
+         IF (MAPL_Am_I_Root()) THEN
+            WRITE(*,546) dt
+546         FORMAT(' calling offline_tracer_advection with timestep = ', f8.3)
+         ENDIF
          call offline_tracer_advection(TRACERS, DryPLE0, DryPLE1, MFX, MFY, &
                                        CX, CY,                              &
                                        fv_atm(1)%gridstruct,                &

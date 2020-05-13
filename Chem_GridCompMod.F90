@@ -3159,6 +3159,13 @@ CONTAINS
     !IsRunTime = .TRUE.
 #endif
 
+#ifdef ADJOINT
+    if (Input_Opt%is_adjoint .and. first) THEN
+       ! the forward model doesn't actually trigger on the final 
+       ! timestep, so we should skip the first one
+       IsRunTime = .false.
+    end if
+#endif
     ! Is it time to update tendencies?
     ! Tendencies shall only be updated when chemistry is done, which is 
     ! Phase -1 or 2.
