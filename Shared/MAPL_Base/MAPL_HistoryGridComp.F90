@@ -274,6 +274,7 @@ contains
     type(ESMF_Time)                ::  RingTime
     type(ESMF_Time)                ::   RefTime
     type(ESMF_TimeInterval)        :: Frequency
+    type(ESMF_TimeInterval)        :: OneSecond
     type(ESMF_Array)               :: array
     type(ESMF_Field)               :: field
     type(ESMF_Field)               :: f
@@ -1203,7 +1204,7 @@ contains
        if (endTime > startTime) then
           if (RefTime == startTime) then
              if (list(n)%backwards) then
-                RingTime = endTime - Frequency
+                RingTime = RefTime
              else
                 RingTime = RefTime + Frequency
              endif
@@ -1359,8 +1360,12 @@ contains
            _VERIFY(STATUS)
         else
 
-           if (reverseTime .eq. 0) then
-              list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=CurrTime, sticky=.false., rc=status )
+           if (reverseTime .eq. 1) then
+              if (MAPL_Am_I_Root()) &
+                   WRITE(*,*) ' Setting end_alarm to disabled!'
+              call ESMF_TimeIntervalSet( OneSecond, S = 1, rc=rc )
+              ringTime = startTime - oneSecond
+              list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=ringTime, sticky=.false., enabled=.false., rc=status )
            else
               list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=endTime, sticky=.false., rc=status )
            endif
@@ -2825,6 +2830,8 @@ ENDDO PARSER
     character(len=ESMF_MAXSTR)     :: TimeString
     integer                        :: year,month,day,hour,minute
     logical                        :: alarmEnabled
+    type(ESMF_Time)                ::  RingTime
+    character(len=ESMF_MAXSTR)     :: tmpstring
 
 
 !=============================================================================
@@ -2867,7 +2874,7 @@ ENDDO PARSER
    _VERIFY(STATUS)
    Ignore = .false.
    
-   if(.false. .and.  MAPL_AM_I_ROOT() ) then
+   if(.true. .and.  MAPL_AM_I_ROOT() ) then
       write(6,*) "Checking history time"
       call ESMF_ClockGet ( clock,  currTime=CurrTime ,rc=STATUS ) ; _VERIFY(STATUS)
 
@@ -2983,13 +2990,37 @@ ENDDO PARSER
       if (list(n)%disabled .or. ESMF_AlarmIsRinging(list(n)%end_alarm) ) then
          list(n)%disabled = .true.
          Writing(n) = .false.
+         if (MAPL_am_I_Root()) THEN
+            WRITE(*, 1999) n
+         ENDIF
+1999     FORMAT('Not Writing alarm ', i3, ' because end_alarm is ringing')
+
       else
          Writing(n) = ESMF_AlarmIsRinging ( list(n)%his_alarm )
       endif
 
       if(Writing(n)) then
-         call ESMF_AlarmRingerOff( list(n)%his_alarm,rc=status )
-         _VERIFY(STATUS)
+         if (FWD) THEN
+            if (mapl_am_i_root()) & 
+                 WRITE(*,*) ' Shutting off history alarm for alarm ', n
+            call ESMF_AlarmRingerOff( list(n)%his_alarm,rc=status )
+            _VERIFY(STATUS)
+         ENDIF
+
+         if (Mapl_am_i_root()) THEN
+            call ESMF_AlarmGet (list(n)%his_alarm, RingTime=RingTime, rc=status) ; _VERIFY(STATUS)
+
+            call ESMF_TimeGet  ( RingTime, timeString=tmpstring, rc=status ) ; _VERIFY(STATUS)
+
+            read(tmpstring( 1: 4),'(i4.4)') year
+            read(tmpstring( 6: 7),'(i2.2)') month
+            read(tmpstring( 9:10),'(i2.2)') day
+            read(tmpstring(12:13),'(i2.2)') hour
+            read(tmpstring(15:16),'(i2.2)') minute
+            write(6,'(1X,"  Next RingTime: ",i4.4, "/", i2.2, "/", i2.2, "T", i2.2, ":", i2.2, "   backwards:",L1)') &
+                 year, month, day, hour, minute, list(n)%backwards
+
+         ENDIF
       end if
 
       if (Ignore(n)) then

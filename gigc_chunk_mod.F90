@@ -106,6 +106,9 @@ CONTAINS
     USE Time_Mod,                ONLY : Set_Timesteps
     USE UCX_MOD,                 ONLY : INIT_UCX
     USE UnitConv_Mod,            ONLY : Convert_Spc_Units
+#ifdef ADJOINT
+    USE Charpak_Mod,             ONLY : To_UpperCase
+#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -194,7 +197,13 @@ CONTAINS
     REAL(fp)                       :: d, dmin
     INTEGER                        :: imin, jmin, NFD, LFD
     INTEGER                        :: IFD, JFD
-    LOGICAL                        :: FD_GLOBAL
+    CHARACTER(LEN=ESMF_MAXSTR)     :: FD_TYPE
+
+    ! At present, we are unable to load cube-sphere files through ExtData
+    ! so we will define the cost function region thusly in GCHP.rc
+    INTEGER                        :: CF_IMIN, CF_IMAX
+    INTEGER                        :: CF_JMIN, CF_JMAX
+    INTEGER                        :: CF_LMIN, CF_LMAX
 
     ! Need to get gloabl grid information for some FD spot tests
     TYPE(ESMF_Grid)                :: grid           ! ESMF Grid object
@@ -310,26 +319,39 @@ CONTAINS
        input_opt%IS_ADJOINT = .TRUE.
     endif
 
-    call ESMF_ConfigGetAttribute(CF, FD_STEP, &
-                                 Label="FD_STEP:" , Default=-1, RC=STATUS)
+    call ESMF_ConfigGetAttribute(CF, FD_TYPE, &
+         Label="FD_TYPE:" , Default='NONE', RC=STATUS)
     _VERIFY(STATUS)
-    
+
+    Input_Opt%IS_FD_GLOBAL = TRIM(To_UpperCase(FD_TYPE(1:4))) == 'GLOB'
+    Input_Opt%IS_FD_SPOT   = TRIM(To_UpperCase(FD_TYPE(1:4))) == 'SPOT'
+    IF (MAPL_Am_I_Root()) THEN
+       WRITE(*,1091) TRIM(FD_TYPE), Input_Opt%IS_FD_GLOBAL, Input_Opt%IS_FD_SPOT
+    ENDIF
+1091   FORMAT('FD_TYPE = ', a6, ', FD_GLOB = ', L1, ', FD_SPOT = ', L1)
+
+
+
+    call ESMF_ConfigGetAttribute(CF, FD_STEP, &
+         Label="FD_STEP:" , Default=-1, RC=STATUS)
+    _VERIFY(STATUS)
+
+    IF (Input_Opt%IS_FD_GLOBAL .or. Input_Opt%IS_FD_SPOT)  THEN
+       _ASSERT(FD_STEP /= -1, 'FD_GLOB or FD_SPOT require FD_STEP')
+    ENDIF
+
+
     if (.not. FD_STEP == -1 .or. input_opt%IS_ADJOINT) THEN
        Input_Opt%FD_STEP = FD_STEP
 
-       call ESMF_ConfigGetAttribute(CF, FD_GLOBAL, &
-            Label="FD_GLOBAL:" , Default=.false., RC=STATUS)
-       _VERIFY(STATUS)
-
-       Input_Opt%IS_FD_GLOBAL = FD_GLOBAL
-
-       if (.not. FD_GLOBAL) &
-            Input_Opt%IS_FD_SPOT = .true.
-
        call ESMF_ConfigGetAttribute(CF, FD_SPEC, &
-            Label="FD_SPEC:", RC=STATUS)
+            Label="FD_SPEC:", default="", RC=STATUS)
        _VERIFY(STATUS)
-       NFD = Ind_(FD_SPEC)
+       IF (TRIM(FD_SPEC ) == "") THEN
+          NFD = -1
+       ELSE
+          NFD = Ind_(FD_SPEC)
+       ENDIF
 
        call ESMF_ConfigGetAttribute(CF, IFD, &
             Label="IFD:", default=-1, RC=STATUS)
@@ -339,17 +361,17 @@ CONTAINS
             Label="JFD:", default=-1, RC=STATUS)
        _VERIFY(STATUS)
 
+       ! Get the ESMF grid attached to this gridded component
+       CALL ESMF_GridCompGet( GC, grid=Grid, __RC__ )
+
+       ! Get the upper and lower bounds of on each PET using MAPL
+       CALL MAPL_GridGetInterior( Grid, IL_PET, IU_PET, JL_PET, JU_PET )
+
        ! See if we specified IFD and JFD in GCHP.rc
        IF ( IFD > 0 .and. JFD > 0 ) THEN
 
-          ! Get the ESMF grid attached to this gridded component
-          CALL ESMF_GridCompGet( GC, grid=Grid, __RC__ )
-
-          ! Get the upper and lower bounds of on each PET using MAPL
-          CALL MAPL_GridGetInterior( Grid, IL_PET, IU_PET, JL_PET, JU_PET )
-
-          if (IL_PET .le. IFD .and. IFD .lt. IU_PET .and. &
-               JL_PET .le. JFD .and. JFD .lt. JU_PET) THEN
+          if (IL_PET .le. IFD .and. IFD .le. IU_PET .and. &
+               JL_PET .le. JFD .and. JFD .le. JU_PET) THEN
              Input_Opt%IS_FD_SPOT_THIS_PET = .true.
              Input_opt%IFD = IFD - IL_PET + 1
              Input_Opt%JFD = JFD - JL_PET + 1
@@ -407,8 +429,100 @@ CONTAINS
             Label="LFD:", RC=STATUS)
        _VERIFY(STATUS)
 
-
        Input_Opt%LFD = LFD
+
+       ! Read in cost function region
+
+       call ESMF_ConfigGetAttribute(CF, CF_IMIN, &
+            Label="CF_IMIN:", default=-1, RC=STATUS)
+       _VERIFY(STATUS)
+
+       CF_IMIN = CF_IMIN - IL_PET + 1
+
+       call ESMF_ConfigGetAttribute(CF, CF_IMAX, &
+            Label="CF_IMAX:", default=-1, RC=STATUS)
+       _VERIFY(STATUS)
+
+       CF_IMAX = CF_IMAX - IL_PET + 1
+
+       call ESMF_ConfigGetAttribute(CF, CF_JMIN, &
+            Label="CF_JMIN:", default=-1, RC=STATUS)
+       _VERIFY(STATUS)
+
+       CF_JMIN = CF_JMIN - JL_PET + 1
+
+       call ESMF_ConfigGetAttribute(CF, CF_JMAX, &
+            Label="CF_JMAX:", default=-1, RC=STATUS)
+       _VERIFY(STATUS)
+
+       CF_JMAX = CF_JMAX - JL_PET + 1
+
+       call ESMF_ConfigGetAttribute(CF, CF_LMIN, &
+            Label="CF_LMIN:", default=-1, RC=STATUS)
+       _VERIFY(STATUS)
+
+       call ESMF_ConfigGetAttribute(CF, CF_LMAX, &
+            Label="CF_LMAX:", default=-1, RC=STATUS)
+       _VERIFY(STATUS)
+
+       IF (CF_IMIN < 1 .OR. CF_IMIN > State_Grid%NX .OR. &
+            CF_IMAX < 1 .OR. CF_IMAX > State_Grid%NX .OR. &
+            CF_JMIN < 1 .OR. CF_JMIN > State_Grid%NY .OR. &
+            CF_JMAX < 1 .OR. CF_JMAX > State_Grid%NY) THEN
+       WRITE(*,1028) Input_Opt%MyCPU,   &
+            Input_Opt%CF_IMIN, Input_Opt%CF_IMAX, &
+            Input_Opt%CF_JMIN, Input_Opt%CF_JMAX, &
+            Input_Opt%CF_LMIN, Input_Opt%CF_LMAX
+1028   FORMAT('Pre-CF on Pet ', i3, ' I = (', i3, ', ', i3, ') &
+             J = ( ', i3, ', ', i3, ') &
+             L = (', i3, ', ', i3, ')')
+
+          CF_IMIN = -1
+          CF_IMAX = -1
+          CF_JMIN = -1
+          CF_JMAX = -1
+          CF_LMIN = -1
+          CF_LMAX = -1
+       ENDIF
+
+       _ASSERT(CF_IMIN * CF_IMAX > 0, 'Please define both max and min for CF_I')
+       _ASSERT(CF_JMIN * CF_JMAX > 0, 'Please define both max and min for CF_J')
+       _ASSERT(CF_LMIN * CF_LMAX > 0, 'Please define both max and min for CF_L')
+
+       _ASSERT(CF_LMIN * CF_IMIN > 0, 'If CF_I: is defined, please define CF_L')
+       _ASSERT(CF_JMIN * CF_IMIN > 0, 'If CF_I: is defined, please define CF_J')
+       
+       ! At this point, they should all be set or all be negative (probably -1)
+       IF (CF_IMIN > 0) THEN
+          Input_Opt%CF_IMIN = CF_IMIN
+          Input_Opt%CF_IMAX = CF_IMAX
+          Input_Opt%CF_JMIN = CF_JMIN
+          Input_Opt%CF_JMAX = CF_JMAX
+          Input_Opt%CF_LMIN = CF_LMIN
+          Input_Opt%CF_LMAX = CF_LMAX
+       ELSEIF (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+          Input_Opt%CF_IMIN = Input_Opt%IFD
+          Input_Opt%CF_IMAX = Input_Opt%IFD
+          Input_Opt%CF_JMIN = Input_Opt%JFD
+          Input_Opt%CF_JMAX = Input_Opt%JFD
+          Input_Opt%CF_LMIN = Input_Opt%LFD
+          Input_Opt%CF_LMAX = Input_Opt%LFD
+       WRITE(*,1027) Input_Opt%MyCPU,   &
+            Input_Opt%CF_IMIN, Input_Opt%CF_IMAX, &
+            Input_Opt%CF_JMIN, Input_Opt%CF_JMAX, &
+            Input_Opt%CF_LMIN, Input_Opt%CF_LMAX
+1027   FORMAT('CF on Pet ', i3, ' I = (', i3, ', ', i3, ') &
+             J = ( ', i3, ', ', i3, ') &
+             L = (', i3, ', ', i3, ')')
+
+       ELSE
+          Input_Opt%CF_IMIN = -1
+          Input_Opt%CF_IMAX = -1
+          Input_Opt%CF_JMIN = -1
+          Input_Opt%CF_JMAX = -1
+          Input_Opt%CF_LMIN = -1
+          Input_Opt%CF_LMAX = -1
+       ENDIF
 
        IF ( Input_Opt%IS_FD_SPOT_THIS_PET ) THEN
           write (*,1011) myPet, dmin, imin, jmin, &
@@ -710,6 +824,8 @@ CONTAINS
 #ifdef ADJOINT
     ! Adjoint Finitie Difference Variables
     INTEGER                        :: IFD, JFD, LFD, NFD
+    INTEGER                        :: I, J, L
+    REAL*8                         :: CFN
 #endif
 #if !defined( MODEL_GEOS )
     INTEGER                        :: N
@@ -939,7 +1055,7 @@ CONTAINS
     CALL GIGC_PRINT_MET( am_I_root, I_DBG, J_DBG, L_DBG, Input_Opt,&
          State_Grid, State_Met, trim(Iam) // ' before first unit conversion.', RC)
     
-    IF (first .and. Input_Opt%IS_FD_SPOT_THIS_PET .and. .not. Input_Opt%IS_FD_GLOBAL) THEN
+    IF (first .and. Input_Opt%IS_FD_SPOT_THIS_PET .and.  Input_Opt%IS_FD_SPOT) THEN
        FD_SPEC = transfer(state_chm%SpcData(Input_Opt%NFD)%Info%Name, FD_SPEC)
        IFD = Input_Opt%IFD
        JFD = Input_Opt%JFD
@@ -947,9 +1063,22 @@ CONTAINS
        NFD = Input_Opt%NFD
        WRITE (*, 1017) TRIM(FD_SPEC), state_chm%species(IFD, JFD, LFD, NFD)
        IF (Input_Opt%IS_ADJOINT) THEN
-          WRITE (*, 1018) TRIM(FD_SPEC), state_chm%speciesAdj(IFD, JFD, LFD, NFD)
+          WRITE(*,*) ' Computing final cost function'
+          CFN = 0d0
           state_chm%SpeciesAdj(:,:,:,NFD) = 0d0
-          state_chm%SpeciesAdj(IFD, JFD, LFD, NFD) = 1.0d0
+          DO L = 1,State_Grid%NZ
+          DO J = 1,State_Grid%NY
+          DO I = 1,State_Grid%NX
+             if (State_chm%CostFuncMask(I,J,L) > 0d0) THEN
+                WRITE (*, 1047) I, J, L, state_chm%species(I, J, L, NFD)
+                state_chm%SpeciesAdj(I,J,L, NFD) = 1.0d0
+                CFN = CFN + state_chm%species(I,J,L,NFD)
+             endif
+          ENDDO
+          ENDDO
+          ENDDO
+          WRITE(*,'(a7, e22.10)') ' CFN = ', CFN
+1047      FORMAT('  SPC(', i2, ', ', i2, ', ', i2, ') = ', e22.10)
        ELSE
           IF (Input_Opt%FD_STEP .eq. 0) THEN
              WRITE(*, *) '    Not perturbing'
@@ -1359,7 +1488,7 @@ CONTAINS
 #endif
 
 #ifdef ADJOINT
-       if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+       if (Input_Opt%IS_FD_SPOT_THIS_PET .and. Input_opt%IFD > 0) THEN
        DO N = 1, State_Chm%nSpecies
           ThisSpc => State_Chm%SpcData(N)%Info
           write(*,*) 'SpcAdj(', TRIM(thisSpc%Name), ') = ',  &
@@ -1379,7 +1508,7 @@ CONTAINS
           TRACNAME = ThisSpc%Name
 
           State_Chm%SpeciesAdj(:,:,:,N) = State_Chm%SpeciesAdj(:,:,:,N) * State_Chm%Species(:,:,:,N)
-          if (Input_Opt%IS_FD_SPOT_THIS_PET) THEN
+          if (Input_Opt%IS_FD_SPOT_THIS_PET .and. Input_Opt%IFD > 0) THEN
              write(*,*) 'After conversion ',  &
                   State_Chm%SpeciesAdj(Input_Opt%IFD,Input_Opt%JFD,Input_Opt%LFD,N)
           ENDIF
@@ -1389,7 +1518,6 @@ CONTAINS
                                    State_Diag%SpeciesAdj,                   &
                                    Input_Opt,  State_Chm,                   &
                                    State_Grid, State_Met,  RC              )
-
     ENDIF
 #endif
 
@@ -1466,9 +1594,43 @@ CONTAINS
 !EOP
 !------------------------------------------------------------------------------
 !BOC
+! LOCAL VARIABLES:
+!
+#ifdef ADJOINT
+    ! Finite difference test variables
+    INTEGER                        :: IFD, JFD, LFD, NFD
+    INTEGER                        :: I, J, L
+    REAL*8                         :: CFN
+    CHARACTER(len=ESMF_MAXSTR)     :: FD_SPEC
+#endif
 
     ! Assume succes
     RC = GC_SUCCESS
+
+#ifdef ADJOINT
+    IF (Input_Opt%IS_FD_SPOT_THIS_PET .and. .not. Input_Opt%IS_FD_GLOBAL) THEN
+       FD_SPEC = transfer(state_chm%SpcData(Input_Opt%NFD)%Info%Name, FD_SPEC)
+       IFD = Input_Opt%IFD
+       JFD = Input_Opt%JFD
+       LFD = Input_Opt%LFD
+       NFD = Input_Opt%NFD
+       ! print out the cost function
+       WRITE(*,*) ' Computing final cost function'
+       CFN = 0d0
+       DO L = 1, State_Grid%NZ
+       DO J = 1, State_Grid%NY
+       DO I = 1, State_Grid%NX
+          if (State_Chm%CostFuncMask(I,J,L) > 0d0) THEN
+             WRITE (*, 1047) I, J, L, state_chm%species(I, J, L, NFD)
+             CFN = CFN + state_chm%Species(I, J, L, NFD)
+          endif
+       ENDDO
+        ENDDO
+       ENDDO
+       WRITE(*,'(a7, e22.10)') ' CFN = ', CFN
+1047   FORMAT('  SPC(', i2, ', ', i2, ', ', i2, ') = ', e22.10)
+    ENDIF
+#endif
 
     ! Finalize HEMCO
     CALL HCOI_GC_FINAL( am_I_Root, .FALSE., RC )

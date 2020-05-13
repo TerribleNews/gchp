@@ -53,6 +53,7 @@ CS_RES={GridRes} # 24 ~ 4x5, 48 ~ 2x2.5, 90 ~ 1x1.25, 180 ~ 1/2 deg, 360 ~ 1/4 d
 # WARNING: Turning on debug prints significantly slows down the model!
 #
 MAPL_DEBUG_LEVEL=0
+MEMORY_DEBUG_LEVEL=0
 
 #------------------------------------------------
 #    Simulation Start/End/Duration
@@ -70,8 +71,8 @@ MAPL_DEBUG_LEVEL=0
 # Use this feature with the multi-segmented runs / monthly diagnostics
 # section below. See more information about this on the GCHP wiki.
 #
-Start_Time="{DATE2} {TIME2}"
-End_Time="{DATE1} {TIME1}"
+Start_Time="{DATE1} {TIME1}"
+End_Time="{DATE2} {TIME2}"
 Duration="{dYYYYMMDD} {dHHmmss}"
 
 #------------------------------------------------
@@ -196,8 +197,8 @@ Turn_on_emissions=T
 Turn_on_Dry_Deposition=F
 Turn_on_Wet_Deposition=F
 Turn_on_Transport=T
-Turn_on_Cloud_Conv=T
-Turn_on_PBL_Mixing=T
+Turn_on_Cloud_Conv=F
+Turn_on_PBL_Mixing=F
 Turn_on_Non_Local_Mixing=T
 
 #------------------------------------------------
@@ -207,8 +208,8 @@ Turn_on_Non_Local_Mixing=T
 #
 # WARNING: these settings will override manual updates you make to input.geos!
 #
-TransConv_Timestep_sec=-600
-ChemEmiss_Timestep_sec=-1200
+TransConv_Timestep_sec=600
+ChemEmiss_Timestep_sec=1200
 #
 # ***IMPORTANT NOTES***
 # If changing timesteps, set read frequency of SPHU2, TMPU2, and PS2 in 
@@ -383,6 +384,7 @@ echo "Simulation start, end, duration:"
 replace_val BEG_DATE  "${Start_Time}" CAP.rc
 replace_val END_DATE  "${End_Time}"   CAP.rc
 replace_val JOB_SGMT  "${Duration}"   CAP.rc
+replace_val REVERSE_TIME "1"          CAP.rc
 
 #### Set frequency of writing restart files
 # Set to a very large number if turned off
@@ -472,6 +474,7 @@ replace_val dt            ${TransConv_Timestep_sec}  fvcore_layout.rc
 echo " "
 echo "MAPL Debug Level:"
 replace_val DEBUG_LEVEL ${MAPL_DEBUG_LEVEL} ExtData.rc
+replace_val MEMORY_DEBUG_LEVEL ${MEMORY_DEBUG_LEVEL} GCHP.rc
 
 #### Set advection on/off based on input.geos
 echo " "
