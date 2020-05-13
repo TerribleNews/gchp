@@ -540,6 +540,10 @@
 
       logical, save         :: firstRun = .true.
 
+#ifdef ADJOINT
+      integer               :: reverseTime
+#endif
+
       ! Get the target components name and set-up traceback handle.
       ! -----------------------------------------------------------
       call ESMF_GridCompGet ( GC, name=COMP_NAME, Grid=esmfGrid, RC=STATUS )
@@ -559,6 +563,18 @@
       call MAPL_GetResource( ggState, ndt, 'RUN_DT:', default=0, RC=STATUS )
       _VERIFY(STATUS)
       dt = ndt
+
+#ifdef ADJOINT
+      call MAPL_GetResource( ggState, reverseTime, 'REVERSE_TIME:', default=0, RC=STATUS )
+      _VERIFY(STATUS)
+      IF ( MAPL_Am_I_Root() ) THEN
+         WRITE(*,*) ' GIGCenv REVERSE_TIME: ', reverseTime
+      ENDIF
+      IF ( reverseTime .eq. 1) THEN
+         WRITE(*,*) ' GIGCenv swapping timestep sign.'
+         dt = -dt
+      ENDIF
+#endif
 
       ! Get to the imports...
       ! ---------------------
