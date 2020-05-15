@@ -1367,7 +1367,9 @@ contains
               ringTime = startTime - oneSecond
               list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=ringTime, sticky=.false., enabled=.false., rc=status )
            else
-              list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=endTime, sticky=.false., rc=status )
+              call ESMF_TimeIntervalSet( OneSecond, S = 1, rc=rc )
+              ringTime = endTime + oneSecond
+              list(n)%end_alarm = ESMF_AlarmCreate( clock=clock, RingTime=ringTime, sticky=.false., rc=status )
            endif
            _VERIFY(STATUS)
            call  ESMF_AlarmRingerOff(list(n)%end_alarm, rc=status )
